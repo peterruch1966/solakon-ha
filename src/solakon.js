@@ -97,7 +97,9 @@ export class Solakon extends EventEmitter {
   async discoverExtras(entries, devices) {
     const s = this.getSettings();
     const pv = findDevice(devices, s.devices?.pv);
-    const meter = findDevice(devices, s.devices?.meter);
+    // If no meter device matches by name, use the device of the configured grid power sensor.
+    const meter = findDevice(devices, s.devices?.meter) || devices.find((d) => d.id
+      && d.id === entries.find((e) => e.entity_id === s.entities.gridPower)?.device_id) || null;
     let states = [];
     if (pv || meter) {
       try {

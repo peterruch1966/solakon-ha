@@ -168,7 +168,7 @@ function renderFlow() {
     ['device', 'battery', isNum(bp) ? -bp : null, css('--s-battery')],
     ['device', 'home', out, css('--s-output')],
   ];
-  if (hasMeter) lines.push(['grid', 'home', grid, css('--s-grid')]);
+  lines.push(['grid', 'home', hasMeter ? grid : null, css('--s-grid')]);
   if (hasPv2) lines.push(['pv2', 'home', pv2, css('--s-pv2')]);
 
   let html = '';
@@ -196,7 +196,7 @@ function renderFlow() {
   html += node('battery', 'battery', `${t('flow.battery')}${isNum(v('battery_soc')) ? ` ${nf(0).format(v('battery_soc'))}%` : ''}`, bp, css('--s-battery'));
   html += node('device', 'device', t('flow.device'), null, '');
   html += node('home', 'home', hasMeter ? t('flow.home') : t('flow.output'), hasMeter ? home : out, css('--s-output'));
-  if (hasMeter) html += node('grid', 'grid', grid < -5 ? t('flow.gridOut') : t('flow.grid'), grid, css('--s-grid'));
+  html += node('grid', 'grid', hasMeter && grid < -5 ? t('flow.gridOut') : t('flow.grid'), hasMeter ? grid : null, css('--s-grid'));
   if (hasPv2) html += node('pv2', 'sun', pv2Name().slice(0, 24), pv2, css('--s-pv2'));
   svg.setAttribute('viewBox', hasMeter || hasPv2 ? '0 0 340 356' : '0 0 340 256');
   svg.innerHTML = html;

@@ -24,7 +24,7 @@ export const DEFAULT_SETTINGS = {
   // Extra HA entities that are not part of the Solakon integration. Empty = auto-detect from `devices`.
   entities: {
     // Smart meter power at the grid connection point (W). Used for zero feed-in and the energy flow.
-    gridPower: '',
+    gridPower: 'sensor.power_goethestrasse_8_total_active_power',
     // Set to true if the meter reports export as positive / import as negative.
     gridPowerInverted: false,
     // Grid meter energy counters (kWh): import from and export (feed-in) to the grid.

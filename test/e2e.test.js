@@ -33,6 +33,8 @@ const send = (method, p, body) => fetch(base + p, {
 before(async () => {
   ha = await startMockHa(HA_PORT);
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'solakon-'));
+  // Start without the built-in default grid sensor so auto-detection by device name is tested.
+  fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({ entities: { gridPower: '' } }));
   app = spawn(process.execPath, ['src/server.js'], {
     env: { ...process.env, PORT: APP_PORT, HA_URL: `http://127.0.0.1:${HA_PORT}`, HA_TOKEN: 'test', DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -127,6 +129,17 @@ test('manual sensor choice overrides auto-detection; no meter blocks zero feed-i
   assert.equal(s.gridPower, null);
   r = await send('PUT', '/api/settings', { control: { mode: 'zero' } });
   assert.equal(r.status, 400);
+});
+
+test('finds the meter device through the grid power sensor when the name does not match', async () => {
+  let r = await send('PUT', '/api/settings', { devices: { meter: 'Not there' }, entities: { gridPower: 'sensor.powermeter_power' } });
+  assert.equal(r.status, 200);
+  const s = await get('/api/state');
+  assert.equal(s.extra.devices.meter.name, 'PowerMeter');
+  assert.equal(s.extra.entities.gridImportEnergy, 'sensor.powermeter_total_energy');
+  assert.equal(s.gridPower, -120);
+  r = await send('PUT', '/api/settings', { devices: { meter: '' }, entities: { gridPower: '' } });
+  assert.equal(r.status, 200);
 });
 
 test('zero feed-in regulates with the smart meter', async () => {
