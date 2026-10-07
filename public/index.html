@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111110">
+  <title>Solakon Local</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1 id="title">Solakon ONE</h1>
+    <span class="conn"><i class="dot" id="conn-dot"></i><span id="conn-text"></span></span>
+  </header>
+
+  <main>
+    <div id="banners"></div>
+
+    <section class="view active" id="view-home">
+      <div class="card">
+        <div class="hero">
+          <div class="ring">
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle cx="60" cy="60" r="52" fill="none" stroke="var(--surface-2)" stroke-width="12"/>
+              <circle id="soc-arc" cx="60" cy="60" r="52" fill="none" stroke="var(--s-battery)" stroke-width="12" stroke-linecap="round" stroke-dasharray="0 400"/>
+            </svg>
+            <div class="val"><b id="soc">–</b><span>SoC</span></div>
+          </div>
+          <div class="hero-info">
+            <div class="state" id="bat-state">–</div>
+            <dl class="kv">
+              <dt data-i18n="bat.power"></dt><dd id="bat-power">–</dd>
+              <dt data-i18n="bat.stored"></dt><dd id="bat-stored">–</dd>
+              <dt data-i18n="bat.temp"></dt><dd id="bat-temp">–</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="chart-head">
+          <h2 data-i18n="flow.title"></h2>
+          <span class="chip" id="ctl-chip"></span>
+        </div>
+        <svg class="flow" id="flow" viewBox="0 0 340 300" role="img"></svg>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="today.title"></h2>
+        <div class="tiles" id="today"></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-stats">
+      <div class="card">
+        <div class="chart-head">
+          <h2 data-i18n="stats.day"></h2>
+          <div class="datenav">
+            <button id="day-prev" aria-label="previous day">‹</button>
+            <span id="day-label"></span>
+            <button id="day-next" aria-label="next day">›</button>
+          </div>
+        </div>
+        <h3 data-i18n="stats.power"></h3>
+        <div id="chart-power"></div>
+        <p class="muted small" data-i18n="stats.batteryHint"></p>
+        <h3 data-i18n="stats.soc"></h3>
+        <div id="chart-soc"></div>
+      </div>
+      <div class="card">
+        <div class="chart-head">
+          <h2 data-i18n="stats.energy"></h2>
+          <div class="seg" id="energy-period" style="min-width:200px">
+            <button data-v="day" class="on" data-i18n="stats.days"></button>
+            <button data-v="month" data-i18n="stats.months"></button>
+          </div>
+        </div>
+        <div id="chart-energy"></div>
+        <button class="link-btn" id="energy-toggle" data-i18n="stats.table"></button>
+      </div>
+    </section>
+
+    <section class="view" id="view-control">
+      <div class="card">
+        <h2 data-i18n="ctl.status"></h2>
+        <div class="seg" id="mode-seg">
+          <button data-v="off" data-i18n="mode.off"></button>
+          <button data-v="constant" data-i18n="mode.constant"></button>
+          <button data-v="zero" data-i18n="mode.zero"></button>
+        </div>
+        <p class="muted small" id="mode-desc"></p>
+        <div id="mode-status" class="small"></div>
+        <div class="slider" id="constant-row">
+          <header><span data-i18n="ctl.constant"></span><b id="constant-val"></b></header>
+          <input type="range" id="constant" min="0" max="800" step="10">
+        </div>
+        <div class="slider">
+          <header><span data-i18n="ctl.max"></span><b id="max-val"></b></header>
+          <input type="range" id="max-output" min="0" max="800" step="10">
+        </div>
+        <h3 data-i18n="ctl.schedule"></h3>
+        <p class="muted small" data-i18n="ctl.schedule.hint"></p>
+        <div class="sched" id="schedule"></div>
+        <div class="btns">
+          <button class="btn secondary" id="add-window" data-i18n="ctl.addWindow"></button>
+          <button class="btn" id="save-control" data-i18n="ctl.save"></button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="force.title"></h2>
+        <p class="muted small" data-i18n="force.hint"></p>
+        <div class="row"><span class="lbl" data-i18n="force.power"></span><span><input type="number" id="force-w" value="400" min="0" max="1200" step="10"> W</span></div>
+        <div class="row"><span class="lbl" data-i18n="force.duration"></span><span><input type="number" id="force-min" value="60" min="1" max="1092" step="1"></span></div>
+        <div class="btns">
+          <button class="btn secondary" id="force-charge" data-i18n="force.charge"></button>
+          <button class="btn secondary" id="force-discharge" data-i18n="force.discharge"></button>
+          <button class="btn danger" id="force-stop" data-i18n="force.stop"></button>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card" id="battery-settings">
+          <h2 data-i18n="batset.title"></h2>
+        </div>
+        <div class="card" id="grid-settings">
+          <h2 data-i18n="gridset.title"></h2>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-device">
+      <div id="device-cards"></div>
+    </section>
+
+    <section class="view" id="view-settings">
+      <div class="card">
+        <h2 data-i18n="set.general"></h2>
+        <div class="row"><span class="lbl" data-i18n="set.language"></span>
+          <select id="lang"><option value="de">Deutsch</option><option value="en">English</option></select></div>
+        <div class="row"><span class="lbl" data-i18n="set.theme"></span>
+          <select id="theme"><option value="auto" data-i18n="theme.auto"></option><option value="light" data-i18n="theme.light"></option><option value="dark" data-i18n="theme.dark"></option></select></div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="set.meter"></h2>
+        <p class="muted small" data-i18n="set.meter.hint"></p>
+        <div class="row"><span class="lbl" data-i18n="set.meter.entity"></span><select id="meter" style="max-width:60%"></select></div>
+        <div class="row"><label class="lbl"><input type="checkbox" id="meter-invert"> <span data-i18n="set.meter.invert"></span></label></div>
+        <div class="row"><span class="lbl" data-i18n="set.meter.now"></span><span class="val" id="meter-now">–</span></div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="set.zero"></h2>
+        <div class="row"><span class="lbl"><span data-i18n="set.zero.target"></span><span class="muted" data-i18n="set.zero.target.hint"></span></span><span><input type="number" id="z-target" step="5"> W</span></div>
+        <div class="row"><span class="lbl" data-i18n="set.zero.deadband"></span><span><input type="number" id="z-deadband" min="0" max="200" step="1"> W</span></div>
+        <div class="row"><span class="lbl" data-i18n="set.zero.interval"></span><span><input type="number" id="z-interval" min="2" max="60" step="1"> s</span></div>
+        <div class="row"><span class="lbl"><span data-i18n="set.zero.smoothing"></span><span class="muted" data-i18n="set.zero.smoothing.hint"></span></span><span><input type="number" id="z-smoothing" min="0.05" max="1" step="0.05"></span></div>
+        <div class="row"><span class="lbl"><span data-i18n="set.timeout"></span><span class="muted" data-i18n="set.timeout.hint"></span></span><span><input type="number" id="timeout" min="30" max="3600" step="10"> s</span></div>
+        <div class="btns"><button class="btn" id="save-settings" data-i18n="ctl.save"></button></div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="set.connection"></h2>
+        <table class="kv"><tbody id="conn-info"></tbody></table>
+        <h3 data-i18n="set.entities"></h3>
+        <div class="table-wrap"><table class="grid"><tbody id="entity-list"></tbody></table></div>
+        <div class="btns"><button class="btn secondary" id="rediscover" data-i18n="set.rediscover"></button></div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <div class="inner">
+      <button data-view="home" class="on"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span data-i18n="nav.home"></span></button>
+      <button data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span data-i18n="nav.stats"></span></button>
+      <button data-view="control"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span data-i18n="nav.control"></span></button>
+      <button data-view="device"><svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4M9 12h6M9 16h6"/></svg><span data-i18n="nav.device"></span></button>
+      <button data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav.settings"></span></button>
+    </div>
+  </nav>
+
+  <div class="toast" id="toast"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
