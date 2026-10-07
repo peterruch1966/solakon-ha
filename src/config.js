@@ -15,12 +15,24 @@ export const env = {
 
 export const DEFAULT_SETTINGS = {
   language: 'de',
-  // Extra HA entities that are not part of the Solakon integration.
+  // Other HA devices, found by name: a separate PV inverter and the grid meter.
+  // Their sensors are picked automatically unless set below in `entities`.
+  devices: {
+    pv: 'Solaranlage Hoymiles',
+    meter: 'PowerMeter',
+  },
+  // Extra HA entities that are not part of the Solakon integration. Empty = auto-detect from `devices`.
   entities: {
     // Smart meter power at the grid connection point (W). Used for zero feed-in and the energy flow.
     gridPower: '',
     // Set to true if the meter reports export as positive / import as negative.
     gridPowerInverted: false,
+    // Grid meter energy counters (kWh): import from and export (feed-in) to the grid.
+    gridImportEnergy: '',
+    gridExportEnergy: '',
+    // Separate PV inverter: AC power (W) and yield counter (kWh).
+    pvPower: '',
+    pvEnergy: '',
   },
   // Manual entity overrides: { solakonKey: entity_id }
   overrides: {},

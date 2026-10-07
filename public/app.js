@@ -12,6 +12,7 @@ let today = null;
 let dayOffset = 0;
 let energyPeriod = 'day';
 let energyTable = false;
+let gridTable = false;
 
 // --- helpers -----------------------------------------------------------------
 
@@ -20,6 +21,9 @@ const nf = (digits = 0) => new Intl.NumberFormat(lang, { minimumFractionDigits: 
 const v = (key) => S?.values?.[key] ?? null;
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const ex = (key) => S?.extra?.[key] ?? null; // values of the extra PV inverter / grid meter
+const pv2Name = () => S?.extra?.devices?.pv?.name || t('series.pv2');
+const kwh = (x) => (isNum(x) ? `${nf(2).format(x)} kWh` : '–');
 
 function fmtW(w) {
   if (!isNum(w)) return '–';
@@ -83,7 +87,7 @@ function show(name) {
   for (const b of $$('nav.tabs button')) b.classList.toggle('on', b.dataset.view === name);
   for (const s of $$('.view')) s.classList.toggle('active', s.id === `view-${name}`);
   if (name === 'stats') loadStats();
-  if (name === 'settings') loadMeterOptions();
+  if (name === 'settings') { loadMeterOptions(); loadDeviceSensors(); }
   render();
   window.scrollTo(0, 0);
 }
@@ -149,12 +153,14 @@ function renderFlow() {
   const pv = v('total_pv_power');
   const bp = v('battery_power');
   const out = v('active_power');
+  const pv2 = ex('pvPower');
   const grid = S.gridPower;
   const hasMeter = isNum(grid);
-  const home = hasMeter && isNum(out) ? out + grid : null;
+  const hasPv2 = isNum(pv2);
+  const home = hasMeter && isNum(out) ? out + grid + (hasPv2 ? pv2 : 0) : null;
 
   const N = {
-    solar: [170, 82], battery: [52, 180], device: [170, 180], home: [288, 180], grid: [288, 282],
+    solar: [170, 82], battery: [52, 180], device: [170, 180], home: [288, 180], grid: [288, 282], pv2: [170, 282],
   };
   const lines = [
     // [from, to, watts (positive = flows from -> to)]
@@ -163,6 +169,7 @@ function renderFlow() {
     ['device', 'home', out, css('--s-output')],
   ];
   if (hasMeter) lines.push(['grid', 'home', grid, css('--s-grid')]);
+  if (hasPv2) lines.push(['pv2', 'home', pv2, css('--s-pv2')]);
 
   let html = '';
   for (const [a, b, w, color] of lines) {
@@ -189,15 +196,21 @@ function renderFlow() {
   html += node('battery', 'battery', `${t('flow.battery')}${isNum(v('battery_soc')) ? ` ${nf(0).format(v('battery_soc'))}%` : ''}`, bp, css('--s-battery'));
   html += node('device', 'device', t('flow.device'), null, '');
   html += node('home', 'home', hasMeter ? t('flow.home') : t('flow.output'), hasMeter ? home : out, css('--s-output'));
-  if (hasMeter) html += node('grid', 'grid', t('flow.grid'), grid, css('--s-grid'));
-  svg.setAttribute('viewBox', hasMeter ? '0 0 340 356' : '0 0 340 256');
+  if (hasMeter) html += node('grid', 'grid', grid < -5 ? t('flow.gridOut') : t('flow.grid'), grid, css('--s-grid'));
+  if (hasPv2) html += node('pv2', 'sun', pv2Name().slice(0, 24), pv2, css('--s-pv2'));
+  svg.setAttribute('viewBox', hasMeter || hasPv2 ? '0 0 340 356' : '0 0 340 256');
   svg.innerHTML = html;
 }
 
 function renderToday() {
   const tot = today?.totals || {};
+  const both = isNum(tot.pv_total_energy) && isNum(tot.pv2_energy);
   const tiles = [
     ['today.pv', tot.pv_total_energy],
+    [pv2Name(), tot.pv2_energy],
+    ['today.pvAll', both ? tot.pv_total_energy + tot.pv2_energy : undefined],
+    ['today.gridIn', tot.meter_import_energy],
+    ['today.gridOut', tot.meter_export_energy],
     ['today.out', tot.grid_total_export_energy],
     ['today.charge', tot.battery_total_charge_energy],
     ['today.discharge', tot.battery_total_discharge_energy],
@@ -382,6 +395,25 @@ function renderDevice() {
     [t('dev.totalCharge'), fmtU(v('battery_total_charge_energy'), 'kWh', 2)],
     [t('dev.totalDischarge'), fmtU(v('battery_total_discharge_energy'), 'kWh', 2)],
   ])}</div>`);
+  const xd = S.extra?.devices || {};
+  if (xd.pv) {
+    cards.push(`<div class="card"><h2>${esc(xd.pv.name)}</h2>${kvTable([
+      [t('dev.model'), [xd.pv.manufacturer, xd.pv.model].filter(Boolean).join(' ') || null],
+      [t('dev.activePower'), fmtU(ex('pvPower'), 'W', 0)],
+      [t('today.title'), isNum(today?.totals?.pv2_energy) ? kwh(today.totals.pv2_energy) : null],
+      [t('dev.totalPv'), isNum(ex('pvEnergy')) ? kwh(ex('pvEnergy')) : null],
+    ])}</div>`);
+  }
+  if (xd.meter) {
+    cards.push(`<div class="card"><h2>${esc(xd.meter.name)}</h2>${kvTable([
+      [t('dev.model'), [xd.meter.manufacturer, xd.meter.model].filter(Boolean).join(' ') || null],
+      [t('set.meter.entity'), fmtU(S.gridPower, 'W', 0)],
+      [`${t('today.gridIn')} ${t('today.title')}`, isNum(today?.totals?.meter_import_energy) ? kwh(today.totals.meter_import_energy) : null],
+      [`${t('today.gridOut')} ${t('today.title')}`, isNum(today?.totals?.meter_export_energy) ? kwh(today.totals.meter_export_energy) : null],
+      [t('stats.meterIn'), isNum(ex('gridImportEnergy')) ? kwh(ex('gridImportEnergy')) : null],
+      [t('stats.meterOut'), isNum(ex('gridExportEnergy')) ? kwh(ex('gridExportEnergy')) : null],
+    ])}</div>`);
+  }
   $('#device-cards').innerHTML = cards.join('');
 }
 
@@ -397,6 +429,42 @@ async function loadMeterOptions() {
   renderSettings(true);
 }
 
+let deviceSensors = null;
+async function loadDeviceSensors() {
+  try {
+    deviceSensors = await api('/api/device-sensors');
+  } catch {
+    deviceSensors = null;
+  }
+  renderDeviceSettings();
+}
+
+// Sensor choices per extra entity: [settings key, device, unit filter]
+const EXTRA_SELECTS = [
+  ['pvPower', 'pv', ['W', 'kW']],
+  ['pvEnergy', 'pv', ['Wh', 'kWh', 'MWh']],
+  ['gridImportEnergy', 'meter', ['Wh', 'kWh', 'MWh']],
+  ['gridExportEnergy', 'meter', ['Wh', 'kWh', 'MWh']],
+];
+
+function renderDeviceSettings() {
+  if (!S) return;
+  const s = S.settings;
+  $('#dev-pv').value = s.devices?.pv ?? '';
+  $('#dev-meter').value = s.devices?.meter ?? '';
+  for (const [key, dev, units] of EXTRA_SELECTS) {
+    const sel = $(`#ent-${key}`);
+    const opts = (deviceSensors?.sensors?.[dev] || []).filter((o) => units.includes(o.unit));
+    const chosen = s.entities[key];
+    if (chosen && !opts.some((o) => o.entityId === chosen)) opts.unshift({ entityId: chosen, name: chosen });
+    const auto = deviceSensors?.entities?.[key];
+    const autoName = !chosen && auto ? ` – ${opts.find((o) => o.entityId === auto)?.name || auto}` : '';
+    sel.innerHTML = `<option value="">${esc(t('set.auto'))}${esc(autoName)}</option>`
+      + opts.map((o) => `<option value="${esc(o.entityId)}">${esc(o.name)}${o.state ? ` (${esc(o.state)} ${esc(o.unit)})` : ''}</option>`).join('');
+    sel.value = chosen || '';
+  }
+}
+
 function renderSettings(force = false) {
   const s = S.settings;
   const sel = $('#meter');
@@ -405,7 +473,8 @@ function renderSettings(force = false) {
     if (s.entities.gridPower && !opts.some((o) => o.entityId === s.entities.gridPower)) {
       opts.unshift({ entityId: s.entities.gridPower, name: s.entities.gridPower });
     }
-    sel.innerHTML = `<option value="">${esc(t('set.meter.none'))}</option>`
+    const meterName = S.extra?.devices?.meter?.name;
+    sel.innerHTML = `<option value="">${esc(meterName ? `${t('set.auto')} – ${meterName}` : t('set.meter.none'))}</option>`
       + opts.map((o) => `<option value="${esc(o.entityId)}">${esc(o.name)}${o.state ? ` (${esc(o.state)} ${esc(o.unit)})` : ''}</option>`).join('');
     sel.value = s.entities.gridPower || '';
     $('#meter-invert').checked = !!s.entities.gridPowerInverted;
@@ -446,6 +515,7 @@ async function loadStats() {
     ]);
     drawHistory(h);
     drawEnergy(e);
+    drawGrid(e);
   } catch (err) {
     toast(err.message, true);
   }
@@ -458,9 +528,10 @@ function drawHistory(h) {
   const series = [
     ['output', 'active_power', '--s-output'],
     ['pv', 'total_pv_power', '--s-pv'],
+    ['pv2', 'pv2_power', '--s-pv2'],
     ['battery', 'battery_power', '--s-battery'],
     ['grid', 'grid', '--s-grid'],
-  ].filter(([, k]) => s[k]).map(([name, k, color]) => ({ name: t(`series.${name}`), color: css(color), points: s[k] }));
+  ].filter(([, k]) => s[k]).map(([name, k, color]) => ({ name: name === 'pv2' ? pv2Name() : t(`series.${name}`), color: css(color), points: s[k] }));
   lineChart($('#chart-power'), { series, xStart, xEnd, unit: 'W', fmt: fmtW, label: t('stats.power'), empty: '–' });
   lineChart($('#chart-soc'), {
     series: s.battery_soc ? [{ name: 'SoC', color: css('--s-battery'), points: s.battery_soc }] : [],
@@ -481,15 +552,16 @@ function drawEnergy(e) {
   const val = (r, k) => (isNum(r[k]) ? r[k] : null);
   const cols = [
     ['pv', 'pv_total_energy', '--s-pv'],
+    ['pv2', 'pv2_energy', '--s-pv2'],
     ['output', 'grid_total_export_energy', '--s-output'],
     ['charge', 'battery_total_charge_energy', '--s-battery'],
-  ];
-  const kwh = (x) => `${nf(2).format(x)} kWh`;
+  ].filter(([, k]) => k !== 'pv2_energy' || rows.some((r) => k in r));
+  const name = (n) => (n === 'pv2' ? pv2Name() : t(`series.${n}`));
   const box = $('#chart-energy');
   $('#energy-toggle').textContent = t(energyTable ? 'stats.chart' : 'stats.table');
   if (energyTable) {
     const all = [...cols, ['discharge', 'battery_total_discharge_energy'], ['import', 'grid_total_import_energy']];
-    box.innerHTML = `<div class="table-wrap"><table class="grid"><tr><th></th>${all.map(([n]) => `<th>${esc(t(`series.${n}`))}</th>`).join('')}</tr>
+    box.innerHTML = `<div class="table-wrap"><table class="grid"><tr><th></th>${all.map(([n]) => `<th>${esc(name(n))}</th>`).join('')}</tr>
       ${rows.slice().reverse().map((r) => `<tr><td>${esc(title(r))}</td>${all.map(([, k]) => `<td>${val(r, k) === null ? '–' : nf(2).format(r[k])}</td>`).join('')}</tr>`).join('')}
     </table></div><p class="muted small">kWh</p>`;
     return;
@@ -497,12 +569,56 @@ function drawEnergy(e) {
   barChart(box, {
     labels: rows.map(label),
     titles: rows.map(title),
-    series: cols.map(([n, k, c]) => ({ name: t(`series.${n}`), color: css(c), values: rows.map((r) => val(r, k)) })),
+    series: cols.map(([n, k, c]) => ({ name: name(n), color: css(c), values: rows.map((r) => val(r, k)) })),
     fmt: kwh,
     extraRows: (i) => [
       { name: t('series.discharge'), color: 'transparent', value: isNum(rows[i].battery_total_discharge_energy) ? kwh(rows[i].battery_total_discharge_energy) : '–' },
     ],
     label: t('stats.energy'),
+    empty: '–',
+  });
+}
+
+// Grid meter: import and feed-in per day / month, with sums over the period and meter readings.
+function drawGrid(e) {
+  const rows = e.rows || [];
+  const keys = [['gridIn', 'meter_import_energy', '--s-grid'], ['gridOut', 'meter_export_energy', '--s-export']]
+    .filter(([, k]) => rows.some((r) => k in r));
+  $('#grid-card').hidden = !keys.length;
+  if (!keys.length) return;
+  const sum = (k) => rows.reduce((a, r) => a + (isNum(r[k]) ? r[k] : 0), 0);
+  const span = t(e.period === 'month' ? 'stats.months' : 'stats.days');
+  const tiles = [
+    ...keys.map(([n, k]) => [`${t(`today.${n}`)} · ${span}`, sum(k)]),
+    [t('stats.meterIn'), ex('gridImportEnergy')],
+    [t('stats.meterOut'), ex('gridExportEnergy')],
+  ].filter(([, x]) => isNum(x));
+  $('#grid-sums').innerHTML = tiles.map(([k, x]) =>
+    `<div class="tile"><div class="t">${esc(k)}</div><div class="v">${nf(2).format(x)}<small>kWh</small></div></div>`).join('');
+
+  const title = (r) => {
+    const d = new Date(r.start);
+    return e.period === 'month' ? d.toLocaleDateString(lang, { month: 'long', year: 'numeric' }) : d.toLocaleDateString(lang, { weekday: 'short', day: '2-digit', month: '2-digit' });
+  };
+  const box = $('#chart-grid');
+  $('#grid-toggle').textContent = t(gridTable ? 'stats.chart' : 'stats.table');
+  if (gridTable) {
+    const cell = (x) => `<td>${isNum(x) ? nf(2).format(x) : '–'}</td>`;
+    box.innerHTML = `<div class="table-wrap"><table class="grid"><tr><th></th>${keys.map(([n]) => `<th>${esc(t(`today.${n}`))}</th>`).join('')}<th>${esc(t('stats.net'))}</th></tr>
+      ${rows.slice().reverse().map((r) => `<tr><td>${esc(title(r))}</td>${keys.map(([, k]) => cell(r[k])).join('')}${cell(isNum(r.meter_import_energy) && isNum(r.meter_export_energy) ? r.meter_import_energy - r.meter_export_energy : null)}</tr>`).join('')}
+      <tr><td><b>Σ</b></td>${keys.map(([, k]) => `<td><b>${nf(2).format(sum(k))}</b></td>`).join('')}<td><b>${keys.length === 2 ? nf(2).format(sum('meter_import_energy') - sum('meter_export_energy')) : '–'}</b></td></tr>
+    </table></div><p class="muted small">kWh · ${esc(t('stats.netHint'))}</p>`;
+    return;
+  }
+  barChart(box, {
+    labels: rows.map((r) => {
+      const d = new Date(r.start);
+      return e.period === 'month' ? d.toLocaleDateString(lang, { month: 'short' }) : String(d.getDate());
+    }),
+    titles: rows.map(title),
+    series: keys.map(([n, k, c]) => ({ name: t(`today.${n}`), color: css(c), values: rows.map((r) => (isNum(r[k]) ? r[k] : null)) })),
+    fmt: kwh,
+    label: t('stats.grid'),
     empty: '–',
   });
 }
@@ -617,6 +733,17 @@ function bind() {
       },
     });
   }, t('ctl.saved')));
+  $('#save-devices').addEventListener('click', () => act(async () => {
+    const entities = {};
+    for (const [key] of EXTRA_SELECTS) entities[key] = $(`#ent-${key}`).value;
+    await api('/api/settings', {
+      method: 'PUT',
+      body: { devices: { pv: $('#dev-pv').value.trim(), meter: $('#dev-meter').value.trim() }, entities },
+    });
+    await loadDeviceSensors();
+    loadToday();
+  }, t('ctl.saved')));
+  $('#grid-toggle').addEventListener('click', () => { gridTable = !gridTable; loadStats(); });
   $('#rediscover').addEventListener('click', () => act(() => api('/api/rediscover', { method: 'POST' }), '✓'));
 
   let resizeTimer;
@@ -634,7 +761,12 @@ function connect() {
     const first = !S;
     S = JSON.parse(ev.data);
     render();
-    if (first) loadToday();
+    if (first) {
+      loadToday();
+      // Views opened before the first state need the device names and settings.
+      if (view === 'stats') loadStats();
+      if (view === 'settings') renderDeviceSettings();
+    }
   };
   es.onerror = () => {
     $('#conn-dot').className = 'dot bad';

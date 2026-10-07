@@ -53,6 +53,28 @@ const states = {};
 for (const [, [id, s, a]] of Object.entries(ENTITIES)) states[id] = { s: String(s), a };
 states['sensor.shelly_3em_power'] = { s: '150', a: { unit_of_measurement: 'W', friendly_name: 'Shelly 3EM Power' } };
 
+// Other devices found by name: a Hoymiles micro inverter (OpenDTU style) and a grid meter (Shelly style).
+const energyAttrs = (unit, name) => ({ unit_of_measurement: unit, device_class: 'energy', state_class: 'total_increasing', friendly_name: name });
+const powerAttrs = (name) => ({ unit_of_measurement: 'W', device_class: 'power', state_class: 'measurement', friendly_name: name });
+const OTHER_DEVICES = {
+  'dev-hoymiles': ['Solaranlage Hoymiles', {
+    'sensor.solaranlage_hoymiles_power': ['420', powerAttrs('Solaranlage Hoymiles Power')],
+    'sensor.solaranlage_hoymiles_power_dc': ['441', powerAttrs('Solaranlage Hoymiles Power DC')],
+    'sensor.solaranlage_hoymiles_yieldday': ['1830', energyAttrs('Wh', 'Solaranlage Hoymiles YieldDay')],
+    'sensor.solaranlage_hoymiles_yieldtotal': ['812.5', energyAttrs('kWh', 'Solaranlage Hoymiles YieldTotal')],
+  }],
+  'dev-meter': ['PowerMeter', {
+    'sensor.powermeter_phase_a_power': ['-40', powerAttrs('PowerMeter Phase A power')],
+    'sensor.powermeter_power': ['-120', powerAttrs('PowerMeter Power')],
+    'sensor.powermeter_phase_a_energy': ['1500', energyAttrs('kWh', 'PowerMeter Phase A energy')],
+    'sensor.powermeter_total_energy': ['4321', energyAttrs('kWh', 'PowerMeter Total energy')],
+    'sensor.powermeter_total_energy_returned': ['987.6', energyAttrs('kWh', 'PowerMeter Total energy returned')],
+  }],
+};
+for (const [, [, ents]] of Object.entries(OTHER_DEVICES)) {
+  for (const [id, [s, a]] of Object.entries(ents)) states[id] = { s, a };
+}
+
 export const serviceCalls = [];
 
 function frame(str) {
@@ -132,10 +154,14 @@ export function startMockHa(port = 8123) {
       case 'config/entity_registry/list':
         ok(Object.entries(ENTITIES).map(([key, [id]]) => ({
           entity_id: id, platform: 'solakon_one', unique_id: `${ENTRY}_${key}`, device_id: DEVICE, disabled_by: null,
-        })).concat([{ entity_id: 'sensor.shelly_3em_power', platform: 'shelly', unique_id: 'x', device_id: 'shelly', disabled_by: null }]));
+        })).concat([{ entity_id: 'sensor.shelly_3em_power', platform: 'shelly', unique_id: 'x', device_id: 'shelly', disabled_by: null }])
+          .concat(Object.entries(OTHER_DEVICES).flatMap(([dev, [, ents]]) => Object.keys(ents).map((id) => ({
+            entity_id: id, platform: 'mqtt', unique_id: id, device_id: dev, disabled_by: null,
+          })))));
         break;
       case 'config/device_registry/list':
-        ok([{ id: DEVICE, name: 'Solakon ONE', manufacturer: 'Solakon', model: 'Solakon ONE', model_id: 'SOL-ONE', serial_number: 'SN123456', sw_version: '1.0.0' }]);
+        ok([{ id: DEVICE, name: 'Solakon ONE', manufacturer: 'Solakon', model: 'Solakon ONE', model_id: 'SOL-ONE', serial_number: 'SN123456', sw_version: '1.0.0' }]
+          .concat(Object.entries(OTHER_DEVICES).map(([id, [name]]) => ({ id, name, name_by_user: null, manufacturer: 'Mock', model: name }))));
         break;
       case 'subscribe_entities': {
         conn.subs.set(msg.id, msg.entity_ids);
@@ -184,7 +210,8 @@ export function startMockHa(port = 8123) {
             else if (id.includes('akkuleistung')) v = h > 18 || h < 6 ? 200 : -400 * sun;
             else if (id.includes('wirkleistung')) v = 200 + 200 * sun;
             else if (id.includes('ladezustand')) v = Math.min(100, 20 + h * 4);
-            else if (id.includes('shelly')) v = 100 - 150 * sun;
+            else if (id.includes('shelly') || id.includes('powermeter')) v = 100 - 150 * sun;
+            else if (id.includes('hoymiles')) v = 600 * sun;
             pts.push({ s: String(Math.round(v)), lu: t });
           }
           res[id] = pts;

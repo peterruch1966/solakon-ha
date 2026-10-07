@@ -88,10 +88,49 @@ test('history and statistics', async () => {
   assert.ok('pv_total_energy' in td.totals);
 });
 
-test('zero feed-in requires a meter, then regulates', async () => {
-  let r = await send('PUT', '/api/settings', { control: { mode: 'zero' } });
-  assert.equal(r.status, 400);
+test('finds the PV inverter and grid meter by device name', async () => {
+  const s = await get('/api/state');
+  assert.equal(s.extra.devices.pv.name, 'Solaranlage Hoymiles');
+  assert.equal(s.extra.devices.meter.name, 'PowerMeter');
+  assert.deepEqual(s.extra.entities, {
+    pvPower: 'sensor.solaranlage_hoymiles_power',
+    pvEnergy: 'sensor.solaranlage_hoymiles_yieldtotal',
+    gridPower: 'sensor.powermeter_power',
+    gridImportEnergy: 'sensor.powermeter_total_energy',
+    gridExportEnergy: 'sensor.powermeter_total_energy_returned',
+  });
+  assert.equal(s.extra.pvPower, 420);
+  assert.equal(s.extra.gridImportEnergy, 4321);
+  assert.equal(s.extra.gridExportEnergy, 987.6);
+  assert.equal(s.gridPower, -120);
 
+  const h = await get('/api/history');
+  assert.ok(h.series.pv2_power.length > 0);
+  assert.ok(h.series.grid.length > 0);
+  const st = await get('/api/statistics?period=day');
+  assert.ok('meter_import_energy' in st.rows[0] && 'meter_export_energy' in st.rows[0] && 'pv2_energy' in st.rows[0]);
+  const td = await get('/api/statistics?period=today');
+  assert.ok('meter_export_energy' in td.totals);
+});
+
+test('manual sensor choice overrides auto-detection; no meter blocks zero feed-in', async () => {
+  let r = await send('PUT', '/api/settings', { entities: { pvEnergy: 'sensor.solaranlage_hoymiles_yieldday' } });
+  assert.equal(r.status, 200);
+  let s = await get('/api/state');
+  assert.equal(s.extra.entities.pvEnergy, 'sensor.solaranlage_hoymiles_yieldday');
+  assert.equal(s.extra.pvEnergy, 1.83, 'Wh are converted to kWh');
+
+  r = await send('PUT', '/api/settings', { devices: { meter: '' }, entities: { pvEnergy: '' } });
+  assert.equal(r.status, 200);
+  s = await get('/api/state');
+  assert.equal(s.extra.devices.meter, null);
+  assert.equal(s.gridPower, null);
+  r = await send('PUT', '/api/settings', { control: { mode: 'zero' } });
+  assert.equal(r.status, 400);
+});
+
+test('zero feed-in regulates with the smart meter', async () => {
+  let r;
   ha.serviceCalls.length = 0;
   ha.setState('sensor.shelly_3em_power', 150); // importing 150 W
   ha.setState('sensor.solakon_one_wirkleistung', 280);

@@ -46,6 +46,12 @@ const ENERGY_KEYS = [
   'grid_total_import_energy',
 ];
 const HISTORY_KEYS = ['total_pv_power', 'battery_power', 'active_power', 'battery_soc'];
+// Statistic keys of the extra devices -> entry in solakon.extra.
+const EXTRA_ENERGY_KEYS = {
+  pv2_energy: 'pvEnergy',
+  meter_import_energy: 'gridImportEnergy',
+  meter_export_energy: 'gridExportEnergy',
+};
 
 function state() {
   return {
@@ -155,7 +161,8 @@ async function history(url) {
 
   const ids = {};
   for (const k of HISTORY_KEYS) if (solakon.entityOf(k)) ids[k] = solakon.entityOf(k);
-  if (settings.entities.gridPower) ids.grid = settings.entities.gridPower;
+  if (solakon.extra.gridPower) ids.grid = solakon.extra.gridPower;
+  if (solakon.extra.pvPower) ids.pv2_power = solakon.extra.pvPower;
   if (!Object.keys(ids).length) return { start: start.getTime(), series: {} };
 
   const result = await ha.send({
@@ -171,10 +178,11 @@ async function history(url) {
 
   const series = {};
   for (const [key, id] of Object.entries(ids)) {
+    let scale = solakon.entities[id]?.attributes?.unit_of_measurement === 'kW' ? 1000 : 1;
+    if (key === 'grid' && settings.entities.gridPowerInverted) scale = -scale;
     const pts = (result[id] || [])
-      .map((p) => [Math.max(start.getTime(), (p.lu ?? p.lc) * 1000), Number(p.s)])
+      .map((p) => [Math.max(start.getTime(), (p.lu ?? p.lc) * 1000), Number(p.s) * scale])
       .filter(([, v]) => Number.isFinite(v));
-    if (key === 'grid' && settings.entities.gridPowerInverted) pts.forEach((p) => { p[1] = -p[1]; });
     series[key] = bucketize(pts, start.getTime(), end.getTime(), 5 * 60e3);
   }
   return { start: start.getTime(), series };
@@ -184,6 +192,7 @@ async function statistics(url) {
   const period = url.searchParams.get('period') || 'day'; // day | month | today
   const ids = {};
   for (const k of ENERGY_KEYS) if (solakon.entityOf(k)) ids[k] = solakon.entityOf(k);
+  for (const [k, e] of Object.entries(EXTRA_ENERGY_KEYS)) if (solakon.extra[e]) ids[k] = solakon.extra[e];
   if (!Object.keys(ids).length) return { period, rows: [] };
 
   let start;
@@ -204,7 +213,7 @@ async function statistics(url) {
   const result = await ha.send({
     type: 'recorder/statistics_during_period',
     start_time: start.toISOString(),
-    statistic_ids: Object.values(ids),
+    statistic_ids: [...new Set(Object.values(ids))],
     period: statPeriod,
     types: ['change'],
     units: { energy: 'kWh' },
@@ -240,6 +249,11 @@ async function powerSensors() {
       unit: s.attributes.unit_of_measurement,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Sensors of the extra devices, for choosing them manually in the settings.
+function deviceSensors() {
+  return { devices: solakon.extraDevices, sensors: solakon.extraSensors, entities: solakon.extra };
 }
 
 async function force(body) {
@@ -278,11 +292,12 @@ async function updateSettings(patch) {
     if (!['off', 'constant', 'zero'].includes(e.mode)) throw new HttpError(400, 'Invalid schedule mode');
     e.watts = num(e.watts ?? 0, [0, c.maxOutputW], 'Schedule power');
   }
-  if (c.mode === 'zero' && !next.entities.gridPower) {
+  if (c.mode === 'zero' && !next.entities.gridPower && !solakon.extra.gridPower) {
     throw new HttpError(400, 'Zero feed-in needs a smart meter entity (Settings → Smart meter).');
   }
 
   const entitiesChanged = JSON.stringify(next.entities) !== JSON.stringify(settings.entities)
+    || JSON.stringify(next.devices) !== JSON.stringify(settings.devices)
     || JSON.stringify(next.overrides) !== JSON.stringify(settings.overrides);
   settings = next;
   saveSettings(settings);
@@ -318,6 +333,8 @@ async function api(req, res, url) {
       return sendJson(res, 200, await statistics(url));
     case 'GET /api/power-sensors':
       return sendJson(res, 200, await powerSensors());
+    case 'GET /api/device-sensors':
+      return sendJson(res, 200, deviceSensors());
     case 'POST /api/number': {
       const { key, value } = await readJson(req);
       if (!(key in NUMBER_LIMITS)) throw new HttpError(400, 'Setting not allowed');

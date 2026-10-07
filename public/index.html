@@ -81,6 +81,12 @@
         <div id="chart-energy"></div>
         <button class="link-btn" id="energy-toggle" data-i18n="stats.table"></button>
       </div>
+      <div class="card" id="grid-card" hidden>
+        <h2 data-i18n="stats.grid"></h2>
+        <div class="tiles" id="grid-sums"></div>
+        <div id="chart-grid"></div>
+        <button class="link-btn" id="grid-toggle" data-i18n="stats.table"></button>
+      </div>
     </section>
 
     <section class="view" id="view-control">
@@ -150,6 +156,17 @@
         <div class="row"><span class="lbl" data-i18n="set.meter.entity"></span><select id="meter" style="max-width:60%"></select></div>
         <div class="row"><label class="lbl"><input type="checkbox" id="meter-invert"> <span data-i18n="set.meter.invert"></span></label></div>
         <div class="row"><span class="lbl" data-i18n="set.meter.now"></span><span class="val" id="meter-now">–</span></div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="set.devices"></h2>
+        <p class="muted small" data-i18n="set.devices.hint"></p>
+        <div class="row"><span class="lbl" data-i18n="set.devices.pv"></span><input type="text" id="dev-pv" style="max-width:60%"></div>
+        <div class="row"><span class="lbl" data-i18n="set.pv.power"></span><select id="ent-pvPower" style="max-width:60%"></select></div>
+        <div class="row"><span class="lbl" data-i18n="set.pv.energy"></span><select id="ent-pvEnergy" style="max-width:60%"></select></div>
+        <div class="row"><span class="lbl" data-i18n="set.devices.meter"></span><input type="text" id="dev-meter" style="max-width:60%"></div>
+        <div class="row"><span class="lbl" data-i18n="set.meter.import"></span><select id="ent-gridImportEnergy" style="max-width:60%"></select></div>
+        <div class="row"><span class="lbl" data-i18n="set.meter.export"></span><select id="ent-gridExportEnergy" style="max-width:60%"></select></div>
+        <div class="btns"><button class="btn" id="save-devices" data-i18n="ctl.save"></button></div>
       </div>
       <div class="card">
         <h2 data-i18n="set.zero"></h2>

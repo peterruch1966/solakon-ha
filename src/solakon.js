@@ -1,5 +1,8 @@
 // Discovers the Solakon ONE entities in Home Assistant and keeps their live state.
 import { EventEmitter } from 'node:events';
+import {
+  findDevice, sensorsOf, pickInverter, pickMeter, deviceInfo, POWER_SCALE, ENERGY_SCALE,
+} from './devices.js';
 
 const PLATFORM = 'solakon_one';
 
@@ -26,6 +29,10 @@ export class Solakon extends EventEmitter {
     this.keyToEntity = {}; // solakon key -> entity_id
     this.entities = {}; // entity_id -> { state, attributes, lastUpdated }
     this.device = null;
+    // Other devices: a separate PV inverter and the grid meter.
+    this.extra = { pvPower: '', pvEnergy: '', gridPower: '', gridImportEnergy: '', gridExportEnergy: '' };
+    this.extraDevices = { pv: null, meter: null };
+    this.extraSensors = { pv: [], meter: [] };
     this.discoveryError = null;
     this.subId = null;
 
@@ -61,35 +68,63 @@ export class Solakon extends EventEmitter {
     Object.assign(map, this.getSettings().overrides || {});
     this.keyToEntity = map;
 
-    if (deviceIds[0]) {
-      try {
-        const devices = await this.ha.send({ type: 'config/device_registry/list' });
-        const d = devices.find((x) => x.id === deviceIds[0]);
-        if (d) {
-          this.device = {
-            id: d.id,
-            name: d.name_by_user || d.name,
-            model: d.model,
-            modelId: d.model_id,
-            serial: d.serial_number,
-            swVersion: d.sw_version,
-            manufacturer: d.manufacturer,
-          };
-        }
-      } catch (err) {
-        this.log.warn('Could not read device registry:', err.message);
-      }
+    let devices = [];
+    try {
+      devices = await this.ha.send({ type: 'config/device_registry/list' });
+    } catch (err) {
+      this.log.warn('Could not read device registry:', err.message);
     }
+    const d = deviceIds[0] && devices.find((x) => x.id === deviceIds[0]);
+    if (d) {
+      this.device = {
+        id: d.id,
+        name: d.name_by_user || d.name,
+        model: d.model,
+        modelId: d.model_id,
+        serial: d.serial_number,
+        swVersion: d.sw_version,
+        manufacturer: d.manufacturer,
+      };
+    }
+    await this.discoverExtras(entries, devices);
 
     this.discoveryError = ours.length ? null
       : `No entities of the "${PLATFORM}" integration found in Home Assistant.`;
     this.log.info(`Discovered ${Object.keys(map).length} Solakon entities`);
   }
 
-  watchedEntityIds() {
+  // Resolve the PV inverter and grid meter sensors: manual entity settings win over auto-detection.
+  async discoverExtras(entries, devices) {
     const s = this.getSettings();
+    const pv = findDevice(devices, s.devices?.pv);
+    const meter = findDevice(devices, s.devices?.meter);
+    let states = [];
+    if (pv || meter) {
+      try {
+        states = await this.ha.send({ type: 'get_states' });
+      } catch (err) {
+        this.log.warn('Could not read states:', err.message);
+      }
+    }
+    this.extraDevices = { pv: deviceInfo(pv), meter: deviceInfo(meter) };
+    this.extraSensors = {
+      pv: pv ? sensorsOf(entries, states, pv.id) : [],
+      meter: meter ? sensorsOf(entries, states, meter.id) : [],
+    };
+    const auto = { ...pickInverter(this.extraSensors.pv), ...pickMeter(this.extraSensors.meter) };
+    this.extra = {};
+    for (const k of ['pvPower', 'pvEnergy', 'gridPower', 'gridImportEnergy', 'gridExportEnergy']) {
+      this.extra[k] = s.entities[k] || auto[k] || '';
+    }
+    for (const [key, name] of [['pv', s.devices?.pv], ['meter', s.devices?.meter]]) {
+      if (name && !this.extraDevices[key]) this.log.warn(`Device "${name}" not found in Home Assistant`);
+    }
+    this.log.info(`Extra sensors: ${JSON.stringify(this.extra)}`);
+  }
+
+  watchedEntityIds() {
     const ids = new Set(Object.values(this.keyToEntity));
-    if (s.entities.gridPower) ids.add(s.entities.gridPower);
+    for (const id of Object.values(this.extra)) if (id) ids.add(id);
     return [...ids].filter(Boolean);
   }
 
@@ -151,14 +186,20 @@ export class Solakon extends EventEmitter {
     return id ? parseValue(this.entities[id]?.state) : null;
   }
 
-  gridPower() {
-    const s = this.getSettings();
-    if (!s.entities.gridPower) return null;
-    const ent = this.entities[s.entities.gridPower];
-    let v = parseValue(ent?.state);
+  // Value of an extra sensor in W (power) or kWh (energy), null if unavailable.
+  extraValue(key) {
+    const ent = this.entities[this.extra[key]];
+    const v = parseValue(ent?.state);
     if (typeof v !== 'number') return null;
-    if (ent.attributes?.unit_of_measurement === 'kW') v *= 1000;
-    return s.entities.gridPowerInverted ? -v : v;
+    const unit = ent.attributes?.unit_of_measurement;
+    return v * (POWER_SCALE[unit] ?? ENERGY_SCALE[unit] ?? 1);
+  }
+
+  // Grid power in W, positive = import.
+  gridPower() {
+    const v = this.extraValue('gridPower');
+    if (v === null) return null;
+    return this.getSettings().entities.gridPowerInverted ? -v : v;
   }
 
   snapshot() {
@@ -183,6 +224,14 @@ export class Solakon extends EventEmitter {
       values,
       meta,
       gridPower: this.gridPower(),
+      extra: {
+        devices: this.extraDevices,
+        entities: this.extra,
+        pvPower: this.extraValue('pvPower'),
+        pvEnergy: this.extraValue('pvEnergy'),
+        gridImportEnergy: this.extraValue('gridImportEnergy'),
+        gridExportEnergy: this.extraValue('gridExportEnergy'),
+      },
       discoveryError: this.discoveryError,
     };
   }
