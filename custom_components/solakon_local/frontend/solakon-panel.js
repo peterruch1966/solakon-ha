@@ -1,21 +1,18 @@
-<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#111110">
-  <title>Solakon Local</title>
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <header class="top">
-    <h1 id="title">Solakon ONE</h1>
-    <span class="conn"><i class="dot" id="conn-dot"></i><span id="conn-text"></span></span>
-  </header>
+// Entry point of the Home Assistant sidebar panel: the <solakon-panel> custom element.
+// Home Assistant sets `hass`, `narrow` and `panel` on it; the app itself lives in app.js.
 
+// Pass the ?v= cache buster of this module on to the modules it loads.
+const q = new URL(import.meta.url).search;
+const app = await import(`./app.js${q}`);
+
+const TEMPLATE = `
+  <link rel="stylesheet" href="${new URL(`./style.css${q}`, import.meta.url)}">
+  <div class="toolbar">
+    <ha-menu-button id="menu"></ha-menu-button>
+    <h1 id="title">Solakon ONE</h1>
+  </div>
+
+  <div class="content" id="content">
   <main>
     <div id="banners"></div>
 
@@ -149,9 +146,7 @@
       <div class="card">
         <h2 data-i18n="set.general"></h2>
         <div class="row"><span class="lbl" data-i18n="set.language"></span>
-          <select id="lang"><option value="de">Deutsch</option><option value="en">English</option></select></div>
-        <div class="row"><span class="lbl" data-i18n="set.theme"></span>
-          <select id="theme"><option value="auto" data-i18n="theme.auto"></option><option value="light" data-i18n="theme.light"></option><option value="dark" data-i18n="theme.dark"></option></select></div>
+          <select id="lang"><option value="" data-i18n="set.langAuto"></option><option value="de">Deutsch</option><option value="en">English</option></select></div>
       </div>
       <div class="card">
         <h2 data-i18n="set.meter"></h2>
@@ -191,6 +186,7 @@
       </div>
     </section>
   </main>
+  </div>
 
   <nav class="tabs">
     <div class="inner">
@@ -198,11 +194,59 @@
       <button data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span data-i18n="nav.stats"></span></button>
       <button data-view="control"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span data-i18n="nav.control"></span></button>
       <button data-view="device"><svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4M9 12h6M9 16h6"/></svg><span data-i18n="nav.device"></span></button>
-      <button data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav.settings"></span></button>
+      <button data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.500V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav.settings"></span></button>
     </div>
   </nav>
 
   <div class="toast" id="toast"></div>
-  <script type="module" src="app.js"></script>
-</body>
-</html>
+`;
+
+class SolakonPanel extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' }).innerHTML = TEMPLATE;
+    this._hass = null;
+    this._narrow = false;
+    this._mounted = false;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._sync();
+  }
+
+  get hass() {
+    return this._hass;
+  }
+
+  set narrow(narrow) {
+    this._narrow = narrow;
+    this._sync();
+  }
+
+  set panel(_panel) { /* no panel config used */ }
+
+  connectedCallback() {
+    this._sync();
+  }
+
+  disconnectedCallback() {
+    if (this._mounted) app.unmount();
+    this._mounted = false;
+  }
+
+  _sync() {
+    const menu = this.shadowRoot.getElementById('menu');
+    menu.hass = this._hass;
+    menu.narrow = this._narrow;
+    if (!this._hass || !this.isConnected) return;
+    if (!this._mounted) {
+      this._mounted = true;
+      app.mount(this.shadowRoot, this._hass);
+    } else {
+      app.setHass(this._hass);
+    }
+  }
+}
+
+if (!customElements.get('solakon-panel')) customElements.define('solakon-panel', SolakonPanel);

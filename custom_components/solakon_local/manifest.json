@@ -1,0 +1,15 @@
+{
+  "domain": "solakon_local",
+  "name": "Solakon Local",
+  "after_dependencies": ["recorder", "history", "solakon_one"],
+  "codeowners": ["@peterruch1966"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/peterruch1966/solakon-local",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/peterruch1966/solakon-local/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "2.0.0"
+}

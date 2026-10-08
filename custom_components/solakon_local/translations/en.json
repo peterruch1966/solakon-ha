@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Solakon Local",
+        "description": "Adds the Solakon panel to the sidebar and runs the local output control. Requires the Solakon ONE integration.",
+        "data": { "device_id": "Solakon ONE device" },
+        "data_description": { "device_id": "Only needed if you have more than one Solakon ONE." }
+      }
+    },
+    "abort": { "already_configured": "Solakon Local is already set up." }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": { "device_id": "Solakon ONE device" },
+        "data_description": { "device_id": "Only needed if you have more than one Solakon ONE." }
+      }
+    }
+  }
+}

@@ -1,11 +1,12 @@
 # Solakon Local
 
-A cloud-free replacement for the Solakon ONE app. It runs as a Docker container on a
-Raspberry Pi and talks only to your local Home Assistant, which reads the battery over
-Modbus TCP using the official [Solakon ONE integration](https://github.com/solakon-de/solakon-one-homeassistant).
+A cloud-free replacement for the Solakon ONE app, as a Home Assistant integration. It adds a
+**Solakon** panel to the HA sidebar and runs a local output control, using only the entities of
+the official [Solakon ONE integration](https://github.com/solakon-de/solakon-one-homeassistant),
+which reads the battery over Modbus TCP.
 
 ```
-Browser / phone ──HTTP──▶ Solakon Local (this container) ──WebSocket──▶ Home Assistant ──Modbus TCP──▶ Solakon ONE
+HA sidebar panel ──HA WebSocket──▶ Solakon Local (custom integration) ──HA entities──▶ Solakon ONE integration ──Modbus TCP──▶ Solakon ONE
 ```
 
 ## Features
@@ -16,7 +17,10 @@ Browser / phone ──HTTP──▶ Solakon Local (this container) ──WebSock
 | **Statistik / Statistics** | Daily power and SoC curves for any day, energy per day (30 days) or month (12 months), with a table view |
 | **Steuerung / Control** | Output control (device / constant power / zero export), time schedule, manual force charge/discharge, SoC limits, charge/discharge currents, export limit, backup (EPS/UPS) output |
 | **Gerät / Device** | Model, serial, firmware, operating and remote-control status, PV strings, battery health, cell voltages, temperatures, grid values, energy counters |
-| **Einstellungen / Settings** | Language (DE/EN), theme, smart meter selection, control tuning, discovered entities |
+| **Einstellungen / Settings** | Language (DE/EN or as in HA), smart meter selection, control tuning, discovered entities |
+
+The panel follows the light/dark mode of your HA theme, updates live, and works in the HA
+companion app. It is only shown to HA administrators.
 
 ### Additional devices: PV inverter, grid meter and wallbox
 
@@ -32,70 +36,52 @@ Their sensors (AC power, yield counter, import and export counters, charging pow
 if a guess is wrong, choose the sensor in Settings. Energy counters need long-term statistics in
 HA (`state_class: total_increasing`), which most integrations provide.
 
-Live values update over a push stream (no page refresh needed). The UI is installable as a
-home-screen app (PWA) and loads nothing from the internet.
-
 ### Output control (replacement for the app's cloud control)
 
 | Mode | Behaviour |
 |---|---|
-| **Gerät / Device** | This app does not touch the device. |
+| **Gerät / Device** | Solakon Local does not touch the device. |
 | **Konstant / Constant** | Delivers a fixed power to the home (base load). |
-| **Nulleinspeisung / Zero export** | Reads your smart meter from Home Assistant every few seconds and adjusts the output so the grid power stays at a small import (default 10 W). |
+| **Nulleinspeisung / Zero export** | Reads your smart meter every few seconds and adjusts the output so the grid power stays at a small import (default 10 W). |
 
 Schedule entries (e.g. "22:00–06:00 constant 120 W") override the base mode; the first
 matching entry wins.
 
-The controller uses the integration's remote-control entities (mode *Inverter export (PV
-priority)*, power setpoint and timeout). It refreshes the timeout while it runs, so **if this
-container stops, the device returns to its own behaviour after the timeout** (default 120 s).
-Discharge is hard-capped at 800 W, force charge at 1200 W, matching the integration.
+The controller runs inside Home Assistant and uses the integration's remote-control entities
+(mode *Inverter export (PV priority)*, power setpoint and timeout). It refreshes the timeout
+while it runs, so **if Home Assistant or this integration stops, the device returns to its own
+behaviour after the timeout** (default 120 s). Discharge is hard-capped at 800 W, force charge
+at 1200 W, matching the integration.
 
 ## Requirements
 
-- Home Assistant with the **Solakon ONE** integration (HACS) set up and working
-- A **long-lived access token** of an HA **admin** user (HA → Profile → Security → Long-lived access tokens).
-  Admin is required to read the entity registry, which is how the app finds the Solakon entities
-  regardless of language or renamed entity IDs.
+- Home Assistant 2024.11 or newer
+- The **Solakon ONE** integration set up and working
 - Optional: a smart-meter power sensor in HA (Shelly 3EM, Tibber Pulse, IR reader, …) for zero export
   and the grid/home part of the energy flow.
 
-## Install on the Raspberry Pi
+## Installation
 
-```bash
-git clone <this repo> solakon-local   # or copy the folder to the Pi
-cd solakon-local
-cp .env.example .env
-nano .env                              # set HA_URL and HA_TOKEN
-docker compose up -d --build
-```
+### HACS (recommended)
 
-Open `http://<pi-ip>:8099`.
+1. HACS → ⋮ → **Custom repositories** → add `https://github.com/peterruch1966/solakon-local`, type **Integration**.
+2. Search for **Solakon Local** in HACS and download it.
+3. Restart Home Assistant.
+4. Settings → Devices & services → **Add integration** → **Solakon Local**.
 
-### Which `HA_URL`?
+### Manual
 
-| Home Assistant runs… | `HA_URL` |
-|---|---|
-| in Docker with `network_mode: host` on the same Pi (the usual setup) | `http://172.17.0.1:8123` or `http://<pi-lan-ip>:8123` |
-| in Docker on a shared user-defined network with this container | `http://homeassistant:8123` (container name) |
-| on another machine | `http://<that-ip>:8123` |
+Copy `custom_components/solakon_local` into the `custom_components` folder of your HA
+configuration, restart Home Assistant and add the integration as in step 4.
 
-### Environment variables
+If you have more than one Solakon ONE, pick the device when adding the integration (or later
+under *Configure*). The **Solakon** panel then appears in the sidebar.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `HA_URL` | `http://homeassistant:8123` | Home Assistant base URL |
-| `HA_TOKEN` | – | Long-lived access token (admin) |
-| `PORT` | `8099` | Web UI port |
-| `TZ` | `Europe/Berlin` | Time zone for schedules and day charts |
-| `APP_PASSWORD` | – | If set, the UI asks for this password (HTTP basic auth, any user name) |
-| `SOLAKON_DEVICE_ID` | – | HA device ID, only needed with more than one Solakon device |
-
-Settings made in the UI are stored in `./data/settings.json`.
+Settings made in the panel are stored in HA (`.storage/solakon_local.settings`).
 
 ## Smart meter sign
 
-The app expects grid power **positive = import from the grid, negative = export**. If your meter
+The panel expects grid power **positive = import from the grid, negative = export**. If your meter
 reports it the other way round, tick *"Vorzeichen umkehren"* in the settings. Check with the
 *Aktuell / Now* value: at night with no PV it should be positive.
 
@@ -105,15 +91,16 @@ reports it the other way round, tick *"Vorzeichen umkehren"* in the settings. Ch
   data range is whatever HA keeps (history: `purge_keep_days`, default 10 days; daily/monthly
   energy: unlimited).
 - Manual force charge/discharge pauses the output control for its duration.
-- If you switch the output control back to *Gerät/Device*, the app sets the remote-control mode
-  back to *Disabled*.
+- If you switch the output control back to *Gerät/Device*, the remote-control mode is set back
+  to *Disabled*.
 - The Solakon cloud features (firmware updates, dynamic tariffs, the official app) are not
   replaced.
 
 ## Development
 
+The control logic, settings validation and device matching have no Home Assistant imports and
+are tested with the Python standard library:
+
 ```bash
-node test/mock-ha.js 8123                       # fake Home Assistant, token "test"
-HA_URL=http://127.0.0.1:8123 HA_TOKEN=test DATA_DIR=./data npm start
-npm test                                        # unit + end-to-end tests (no dependencies)
+python3 -m unittest discover -s tests -t .
 ```

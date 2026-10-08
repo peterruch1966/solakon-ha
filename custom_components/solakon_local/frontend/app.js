@@ -1,11 +1,21 @@
 import { STRINGS } from './i18n.js';
 import { lineChart, barChart } from './chart.js';
 
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => [...document.querySelectorAll(sel)];
+// The panel's shadow root and the Home Assistant object, set by mount().
+let root = null;
+let hass = null;
+const $ = (sel) => root.querySelector(sel);
+const $$ = (sel) => [...root.querySelectorAll(sel)];
+const active = () => root.activeElement;
 
-let S = null; // latest state from the server
-let lang = localStorage.getItem('lang') || 'de';
+let S = null; // latest state from the integration
+let subError = null; // why the live subscription failed, if it did
+let unsubscribe = null;
+let listeners = null; // AbortController of all event listeners, aborted on unmount
+let todayTimer = null;
+let langPref = storage('solakon.lang') || ''; // '' = follow the Home Assistant language
+let lang = 'de';
+let dark = null;
 let view = 'home';
 let ctlDraft = null; // unsaved edits of the control settings
 let today = null;
@@ -20,7 +30,7 @@ const t = (k) => STRINGS[lang][k] ?? STRINGS.de[k] ?? k;
 const nf = (digits = 0) => new Intl.NumberFormat(lang, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const v = (key) => S?.values?.[key] ?? null;
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
-const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const css = (name) => getComputedStyle(root.host).getPropertyValue(name).trim();
 const ex = (key) => S?.extra?.[key] ?? null; // values of the extra PV inverter / grid meter
 const pv2Name = () => S?.extra?.devices?.pv?.name || t('series.pv2');
 const kwh = (x) => (isNum(x) ? `${nf(2).format(x)} kWh` : '–');
@@ -35,8 +45,18 @@ function fmtU(x, unit, digits = 1) {
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// localStorage can be unavailable (private mode, blocked site data).
+function storage(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    if (value === '') localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch { /* ignore */ }
+  return null;
+}
 
 function toast(msg, err = false) {
+  if (!root) return; // unmounted while a command was running
   const el = $('#toast');
   el.textContent = msg;
   el.className = `toast show${err ? ' err' : ''}`;
@@ -44,59 +64,54 @@ function toast(msg, err = false) {
   toast.timer = setTimeout(() => { el.className = 'toast'; }, err ? 5000 : 2200);
 }
 
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    ...opts,
-    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
-  return data;
-}
+// Command of the Solakon Local integration over the Home Assistant WebSocket.
+const ws = (type, data = {}) => hass.callWS({ type: `solakon_local/${type}`, ...data });
 
 async function act(fn, okMsg) {
   try {
     await fn();
     if (okMsg) toast(okMsg);
   } catch (err) {
-    toast(err.message, true);
+    toast(err?.message || String(err), true);
   }
 }
 
 // --- i18n & theme -------------------------------------------------------------
 
 function applyI18n() {
-  document.documentElement.lang = lang;
+  const haLang = hass?.locale?.language || hass?.language || '';
+  lang = langPref || (haLang.startsWith('de') ? 'de' : 'en');
+  root.host.lang = lang;
   for (const el of $$('[data-i18n]')) el.textContent = t(el.dataset.i18n);
-  $('#lang').value = lang;
+  $('#lang').value = langPref;
 }
 
+// The panel follows the light/dark mode of the Home Assistant theme.
 function applyTheme() {
-  const theme = localStorage.getItem('theme') || 'auto';
-  if (theme === 'auto') delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = theme;
-  $('#theme').value = theme;
+  const d = !!hass?.themes?.darkMode;
+  if (d === dark) return false;
+  dark = d;
+  root.host.dataset.theme = d ? 'dark' : 'light';
+  return true;
 }
 
 // --- navigation ---------------------------------------------------------------
 
 function show(name) {
   view = name;
-  history.replaceState(null, '', name === 'home' ? location.pathname : `#${name}`);
   for (const b of $$('nav.tabs button')) b.classList.toggle('on', b.dataset.view === name);
   for (const s of $$('.view')) s.classList.toggle('active', s.id === `view-${name}`);
   if (name === 'stats') loadStats();
   if (name === 'settings') { loadMeterOptions(); loadDeviceSensors(); }
   render();
-  window.scrollTo(0, 0);
+  $('#content').scrollTop = 0;
 }
 
 // --- rendering ----------------------------------------------------------------
 
 function render() {
-  if (!S) return;
   renderHeader();
+  if (!S) return;
   if (view === 'home') renderHome();
   if (view === 'control') renderControl();
   if (view === 'device') renderDevice();
@@ -104,15 +119,15 @@ function render() {
 }
 
 function renderHeader() {
-  $('#title').textContent = S.device?.name || 'Solakon ONE';
-  const ok = S.ha.connected;
-  $('#conn-dot').className = `dot ${ok ? 'ok' : 'bad'}`;
-  $('#conn-text').textContent = ok ? t('conn.ok') : t('conn.bad');
+  $('#title').textContent = S?.device?.name || 'Solakon ONE';
   const banners = [];
-  if (!ok) banners.push(`<div class="banner error"><b>${esc(t('err.ha'))}</b> (${esc(S.ha.url)})${S.ha.error ? `<br><span class="small">${esc(S.ha.error)}</span>` : ''}</div>`);
-  else if (S.discoveryError) banners.push(`<div class="banner error">${esc(t('err.noEntities'))}<br><span class="small">${esc(S.discoveryError)}</span></div>`);
-  if (S.controller.error && S.controller.mode !== 'off') banners.push(`<div class="banner info">${esc(S.controller.error)}</div>`);
-  $('#banners').innerHTML = banners.join('');
+  if (hass && hass.connected === false) banners.push(`<div class="banner error"><b>${esc(t('err.ha'))}</b></div>`);
+  else if (subError) banners.push(`<div class="banner error"><b>${esc(t('err.notLoaded'))}</b><br><span class="small">${esc(subError)}</span></div>`);
+  else if (S?.discoveryError) banners.push(`<div class="banner error">${esc(t('err.noEntities'))}<br><span class="small">${esc(S.discoveryError)}</span></div>`);
+  if (S?.controller.error && S.controller.mode !== 'off') banners.push(`<div class="banner info">${esc(S.controller.error)}</div>`);
+  const html = banners.join('');
+  // Only touch the DOM when something changed: setHass() calls this on every state change in HA.
+  if ($('#banners').innerHTML !== html) $('#banners').innerHTML = html;
 }
 
 function controllerLabel() {
@@ -261,10 +276,158 @@ function renderToday() {
 }
 
 async function loadToday() {
+  if (!S) return;
   try {
-    today = await api('/api/statistics?period=today');
-    if (view === 'home') renderToday();
+    today = await statistics('today');
+    if (root && view === 'home') renderToday();
   } catch { /* shown via connection banner */ }
+}
+
+// --- history and statistics, read directly from the Home Assistant recorder ------
+
+// Energy counters (total_increasing) used for daily / monthly statistics.
+const ENERGY_KEYS = [
+  'pv_total_energy',
+  'battery_total_charge_energy',
+  'battery_total_discharge_energy',
+  'grid_total_export_energy',
+  'grid_total_import_energy',
+];
+const HISTORY_KEYS = ['total_pv_power', 'battery_power', 'active_power', 'battery_soc'];
+// Statistic keys of the extra devices -> entry in S.extra.entities.
+const EXTRA_ENERGY_KEYS = {
+  pv2_energy: 'pvEnergy',
+  meter_import_energy: 'gridImportEnergy',
+  meter_export_energy: 'gridExportEnergy',
+};
+
+const entityOf = (key) => S?.meta?.[key]?.entityId || null;
+const extraEntity = (key) => S?.extra?.entities?.[key] || null;
+
+function startOfDay(d = new Date()) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+// Average history samples into fixed buckets so charts stay light.
+function bucketize(points, startMs, endMs, bucketMs) {
+  const out = [];
+  const now = Date.now();
+  let i = 0;
+  let last = null;
+  for (let b = startMs; b < endMs; b += bucketMs) {
+    if (b > now) break;
+    let sum = 0;
+    let weight = 0;
+    // Time-weighted average of a step function within [b, b + bucketMs).
+    let cursor = b;
+    while (i < points.length && points[i][0] < b + bucketMs) {
+      const [pt, pv] = points[i];
+      if (pt > cursor && last !== null) {
+        sum += last * (pt - cursor);
+        weight += pt - cursor;
+      }
+      cursor = Math.max(cursor, pt);
+      last = pv;
+      i++;
+    }
+    const bucketEnd = Math.min(b + bucketMs, now);
+    if (last !== null && bucketEnd > cursor) {
+      sum += last * (bucketEnd - cursor);
+      weight += bucketEnd - cursor;
+    }
+    out.push([b, weight ? Math.round((sum / weight) * 10) / 10 : null]);
+  }
+  return out;
+}
+
+// Power and SoC curves of one day in 5-minute buckets.
+async function history(day) {
+  const start = startOfDay(day);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  const ids = {};
+  for (const k of HISTORY_KEYS) if (entityOf(k)) ids[k] = entityOf(k);
+  if (extraEntity('gridPower')) ids.grid = extraEntity('gridPower');
+  if (extraEntity('pvPower')) ids.pv2_power = extraEntity('pvPower');
+  if (!Object.keys(ids).length) return { start: start.getTime(), end: end.getTime(), series: {} };
+
+  const result = await hass.callWS({
+    type: 'history/history_during_period',
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+    entity_ids: [...new Set(Object.values(ids))],
+    minimal_response: true,
+    no_attributes: true,
+    include_start_time_state: true,
+    significant_changes_only: false,
+  });
+
+  const series = {};
+  for (const [key, id] of Object.entries(ids)) {
+    let scale = hass.states[id]?.attributes?.unit_of_measurement === 'kW' ? 1000 : 1;
+    if (key === 'grid' && S.settings.entities.gridPowerInverted) scale = -scale;
+    const pts = (result[id] || [])
+      .map((p) => [Math.max(start.getTime(), (p.lu ?? p.lc) * 1000), Number(p.s) * scale])
+      .filter(([, x]) => Number.isFinite(x));
+    series[key] = bucketize(pts, start.getTime(), end.getTime(), 5 * 60e3);
+  }
+  return { start: start.getTime(), end: end.getTime(), series };
+}
+
+// Energy per day (last 30 days) or month (last 12 months), or today's totals.
+async function statistics(period) {
+  const ids = {};
+  for (const k of ENERGY_KEYS) if (entityOf(k)) ids[k] = entityOf(k);
+  for (const [k, e] of Object.entries(EXTRA_ENERGY_KEYS)) if (extraEntity(e)) ids[k] = extraEntity(e);
+  if (!Object.keys(ids).length) return period === 'today' ? { period, totals: {} } : { period, rows: [] };
+
+  const now = new Date();
+  let start = startOfDay(now);
+  if (period === 'month') start = new Date(now.getFullYear() - 1, now.getMonth() + 1, 1);
+  else if (period === 'day') start.setDate(start.getDate() - 29);
+
+  const result = await hass.callWS({
+    type: 'recorder/statistics_during_period',
+    start_time: start.toISOString(),
+    statistic_ids: [...new Set(Object.values(ids))],
+    period: period === 'today' ? '5minute' : period,
+    types: ['change'],
+    units: { energy: 'kWh' },
+  });
+
+  if (period === 'today') {
+    const totals = {};
+    for (const [key, id] of Object.entries(ids)) {
+      totals[key] = (result[id] || []).reduce((a, r) => a + (r.change || 0), 0);
+    }
+    return { period, totals };
+  }
+
+  const rows = new Map();
+  for (const [key, id] of Object.entries(ids)) {
+    for (const r of result[id] || []) {
+      const st = typeof r.start === 'number' ? r.start : Date.parse(r.start);
+      if (!rows.has(st)) rows.set(st, { start: st });
+      rows.get(st)[key] = Math.round((r.change || 0) * 1000) / 1000;
+    }
+  }
+  return { period, rows: [...rows.values()].sort((a, b) => a.start - b.start) };
+}
+
+// All power sensors in HA (W / kW), for choosing the smart meter.
+function powerSensors() {
+  return Object.values(hass.states)
+    .filter((s) => s.entity_id.startsWith('sensor.') && ['W', 'kW'].includes(s.attributes.unit_of_measurement))
+    .map((s) => ({
+      entityId: s.entity_id,
+      name: s.attributes.friendly_name || s.entity_id,
+      state: s.state,
+      unit: s.attributes.unit_of_measurement,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // --- control view -------------------------------------------------------------
@@ -282,12 +445,12 @@ function renderControl() {
   $('#constant-row').hidden = c.mode !== 'constant';
   const constEl = $('#constant');
   const maxEl = $('#max-output');
-  if (document.activeElement !== constEl) constEl.value = c.constantW;
-  if (document.activeElement !== maxEl) maxEl.value = c.maxOutputW;
+  if (active() !== constEl) constEl.value = c.constantW;
+  if (active() !== maxEl) maxEl.value = c.maxOutputW;
   constEl.max = c.maxOutputW;
   $('#constant-val').textContent = fmtW(Number(c.constantW));
   $('#max-val').textContent = fmtW(Number(c.maxOutputW));
-  if (!$('#schedule').contains(document.activeElement)) renderSchedule(c);
+  if (!$('#schedule').contains(active())) renderSchedule(c);
   $('#save-control').disabled = !ctlDraft;
 
   const fm = v('force_mode');
@@ -354,7 +517,7 @@ function sliderHtml([key, label, unit]) {
 function renderBatterySettings() {
   for (const [box, list] of [['#battery-settings', SLIDERS.battery], ['#grid-settings', SLIDERS.grid]]) {
     const card = $(box);
-    if (card.contains(document.activeElement) && document.activeElement.type === 'range') continue;
+    if (card.contains(active()) && active().type === 'range') continue;
     let html = `<h2>${esc(t(box === '#battery-settings' ? 'batset.title' : 'gridset.title'))}</h2>${list.map(sliderHtml).join('')}`;
     if (box === '#grid-settings' && S.meta.eps_output) {
       html += `<div class="row"><span class="lbl">${esc(t('gridset.eps'))}</span>
@@ -465,23 +628,19 @@ function renderDevice() {
 // --- settings view --------------------------------------------------------------
 
 let meterOptions = null;
-async function loadMeterOptions() {
-  try {
-    meterOptions = await api('/api/power-sensors');
-  } catch {
-    meterOptions = [];
-  }
-  renderSettings(true);
+function loadMeterOptions() {
+  meterOptions = powerSensors();
+  if (S) renderSettings(true);
 }
 
 let deviceSensors = null;
 async function loadDeviceSensors() {
   try {
-    deviceSensors = await api('/api/device-sensors');
+    deviceSensors = await ws('device_sensors');
   } catch {
     deviceSensors = null;
   }
-  renderDeviceSettings();
+  if (root) renderDeviceSettings();
 }
 
 // Sensor choices per extra entity: [settings key, device, unit filter]
@@ -534,8 +693,8 @@ function renderSettings(force = false) {
   }
   $('#meter-now').textContent = isNum(S.gridPower) ? fmtW(S.gridPower) : '–';
   $('#conn-info').innerHTML = [
-    [t('set.ha'), S.ha.url],
-    ['Status', S.ha.connected ? t('conn.ok') : (S.ha.error || t('conn.bad'))],
+    [t('set.ha'), hass.config?.version],
+    ['Status', hass.connected === false ? t('conn.bad') : t('conn.ok')],
     ['Device ID', S.device?.id],
   ].filter(([, x]) => x).map(([k, x]) => `<tr><td>${esc(k)}</td><td>${esc(x)}</td></tr>`).join('');
   $('#entity-list').innerHTML = Object.entries(S.meta).sort()
@@ -555,11 +714,10 @@ async function loadStats() {
   const d = dayDate();
   $('#day-label').textContent = dayOffset === 0 ? t('today.title') : d.toLocaleDateString(lang, { weekday: 'short', day: '2-digit', month: '2-digit' });
   $('#day-next').disabled = dayOffset >= 0;
+  if (!S) return;
   try {
-    const [h, e] = await Promise.all([
-      api(`/api/history?date=${isoDay(d)}`),
-      api(`/api/statistics?period=${energyPeriod}`),
-    ]);
+    const [h, e] = await Promise.all([history(d), statistics(energyPeriod)]);
+    if (!root) return;
     drawHistory(h);
     drawEnergy(e);
     drawGrid(e);
@@ -570,7 +728,7 @@ async function loadStats() {
 
 function drawHistory(h) {
   const xStart = h.start;
-  const xEnd = h.start + 24 * 3600e3;
+  const xEnd = h.end;
   const s = h.series;
   const series = [
     ['output', 'active_power', '--s-output'],
@@ -672,7 +830,13 @@ function drawGrid(e) {
 
 // --- events -----------------------------------------------------------------
 
-function bind() {
+// Listeners on the panel's own elements are added once per shadow root, which lives as long as the panel.
+const boundRoots = new WeakSet();
+
+function bind(signal) {
+  observeResize(signal);
+  if (boundRoots.has(root)) return;
+  boundRoots.add(root);
   for (const b of $$('nav.tabs button')) b.addEventListener('click', () => show(b.dataset.view));
 
   // Battery pop-up: hover with a mouse, tap on touch screens.
@@ -716,7 +880,7 @@ function bind() {
     $('#save-control').disabled = false;
   });
   $('#save-control').addEventListener('click', () => act(async () => {
-    await api('/api/settings', { method: 'PUT', body: { control: draft() } });
+    await ws('update_settings', { settings: { control: draft() } });
     ctlDraft = null;
   }, t('ctl.saved')));
 
@@ -725,7 +889,7 @@ function bind() {
     const w = Number($('#force-w').value);
     const m = Number($('#force-min').value);
     if (action !== 'stop' && !confirm(t(`confirm.${action}`).replace('{w}', w).replace('{m}', m))) return;
-    await api('/api/force', { method: 'POST', body: { action, watts: w, minutes: m } });
+    await ws('force', action === 'stop' ? { action } : { action, watts: w, minutes: m });
   }, '✓');
   $('#force-charge').addEventListener('click', () => force('charge'));
   $('#force-discharge').addEventListener('click', () => force('discharge'));
@@ -742,11 +906,11 @@ function bind() {
     $(box).addEventListener('change', (e) => {
       const s = e.target.closest('.slider');
       if (s) {
-        act(() => api('/api/number', { method: 'POST', body: { key: s.dataset.key, value: Number(e.target.value) } }), '✓');
+        act(() => ws('set_number', { key: s.dataset.key, value: Number(e.target.value) }), '✓');
         e.target.blur();
       }
       if (e.target.dataset.select) {
-        act(() => api('/api/select', { method: 'POST', body: { key: e.target.dataset.select, option: e.target.value } }), '✓');
+        act(() => ws('select_option', { key: e.target.dataset.select, option: e.target.value }), '✓');
       }
     });
   }
@@ -765,21 +929,16 @@ function bind() {
 
   // Settings
   $('#lang').addEventListener('change', (e) => {
-    lang = e.target.value;
-    localStorage.setItem('lang', lang);
+    langPref = e.target.value;
+    storage('solakon.lang', langPref);
     applyI18n();
     render();
-    if (view === 'settings') renderSettings(true);
-  });
-  $('#theme').addEventListener('change', (e) => {
-    localStorage.setItem('theme', e.target.value);
-    applyTheme();
-    render();
+    if (view === 'settings' && S) renderSettings(true);
+    if (view === 'stats') loadStats();
   });
   $('#save-settings').addEventListener('click', () => act(async () => {
-    await api('/api/settings', {
-      method: 'PUT',
-      body: {
+    await ws('update_settings', {
+      settings: {
         entities: { gridPower: $('#meter').value, gridPowerInverted: $('#meter-invert').checked },
         control: {
           timeoutS: Number($('#timeout').value),
@@ -796,9 +955,8 @@ function bind() {
   $('#save-devices').addEventListener('click', () => act(async () => {
     const entities = {};
     for (const [key] of EXTRA_SELECTS) entities[key] = $(`#ent-${key}`).value;
-    await api('/api/settings', {
-      method: 'PUT',
-      body: {
+    await ws('update_settings', {
+      settings: {
         devices: { pv: $('#dev-pv').value.trim(), meter: $('#dev-meter').value.trim(), wallbox: $('#dev-wallbox').value.trim() },
         entities,
       },
@@ -807,40 +965,89 @@ function bind() {
     loadToday();
   }, t('ctl.saved')));
   $('#grid-toggle').addEventListener('click', () => { gridTable = !gridTable; loadStats(); });
-  $('#rediscover').addEventListener('click', () => act(() => api('/api/rediscover', { method: 'POST' }), '✓'));
+  $('#rediscover').addEventListener('click', () => act(() => ws('rediscover'), '✓'));
 
+}
+
+// Redraw the charts when the panel is resized (sidebar toggled, window resized).
+function observeResize(signal) {
   let resizeTimer;
-  window.addEventListener('resize', () => {
+  const ro = new ResizeObserver(() => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { if (view === 'stats') loadStats(); }, 250);
   });
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { render(); if (view === 'stats') loadStats(); });
+  ro.observe($('#content'));
+  signal.addEventListener('abort', () => { ro.disconnect(); clearTimeout(resizeTimer); });
 }
 
-function connect() {
-  $('#conn-text').textContent = t('conn.wait');
-  const es = new EventSource('/api/events');
-  es.onmessage = (ev) => {
-    const first = !S;
-    S = JSON.parse(ev.data);
+// --- lifecycle (called by solakon-panel.js) ------------------------------------------
+
+// Incremented on every mount, so callbacks of an earlier mount can tell they are stale.
+let generation = 0;
+
+async function subscribe() {
+  const gen = generation;
+  try {
+    const unsub = await hass.connection.subscribeMessage((state) => {
+      if (gen !== generation) return;
+      const first = !S;
+      S = state;
+      subError = null;
+      render();
+      if (first) {
+        loadToday();
+        // Views opened before the first state need the device names and settings.
+        if (view === 'stats') loadStats();
+        if (view === 'settings') { loadMeterOptions(); renderDeviceSettings(); }
+      }
+    }, { type: 'solakon_local/subscribe' });
+    // Unmounted while the subscription was being set up.
+    if (gen !== generation || !root) unsub();
+    else unsubscribe = unsub;
+  } catch (err) {
+    if (gen !== generation || !root) return;
+    subError = err?.message || String(err);
+    renderHeader();
+  }
+}
+
+export function mount(shadowRoot, h) {
+  generation++;
+  root = shadowRoot;
+  hass = h;
+  listeners = new AbortController();
+  applyTheme();
+  applyI18n();
+  bind(listeners.signal);
+  show(view);
+  subscribe();
+  todayTimer = setInterval(loadToday, 60000);
+}
+
+export function setHass(h) {
+  const prev = hass;
+  hass = h;
+  if (applyTheme()) {
     render();
-    if (first) {
-      loadToday();
-      // Views opened before the first state need the device names and settings.
-      if (view === 'stats') loadStats();
-      if (view === 'settings') renderDeviceSettings();
-    }
-  };
-  es.onerror = () => {
-    $('#conn-dot').className = 'dot bad';
-    $('#conn-text').textContent = t('conn.bad');
-  };
+    if (view === 'stats') loadStats();
+  }
+  if (!langPref && (prev?.locale?.language !== h.locale?.language)) {
+    applyI18n();
+    render();
+  }
+  if (prev?.connected !== h.connected) renderHeader();
 }
 
-applyTheme();
-applyI18n();
-bind();
-connect();
-const startView = location.hash.slice(1);
-if ($(`#view-${startView}`)) show(startView);
-setInterval(loadToday, 60000);
+export function unmount() {
+  generation++;
+  listeners?.abort();
+  clearInterval(todayTimer);
+  if (unsubscribe) unsubscribe();
+  unsubscribe = null;
+  root = null;
+  hass = null;
+  S = null;
+  subError = null;
+  dark = null;
+  ctlDraft = null;
+}

@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Solakon Local",
+        "description": "Fügt das Solakon-Panel zur Seitenleiste hinzu und übernimmt die lokale Ausgangssteuerung. Benötigt die Integration Solakon ONE.",
+        "data": { "device_id": "Solakon-ONE-Gerät" },
+        "data_description": { "device_id": "Nur nötig, wenn mehr als ein Solakon ONE vorhanden ist." }
+      }
+    },
+    "abort": { "already_configured": "Solakon Local ist bereits eingerichtet." }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": { "device_id": "Solakon-ONE-Gerät" },
+        "data_description": { "device_id": "Nur nötig, wenn mehr als ein Solakon ONE vorhanden ist." }
+      }
+    }
+  }
+}
