@@ -171,8 +171,8 @@ function renderFlow() {
   const home = hasMeter && isNum(out) ? out + grid + (hasPv2 ? pv2 : 0) - (hasWallbox ? wb : 0) : null;
 
   const N = {
-    solar: [170, 82], battery: [52, 180], device: [170, 180], home: [288, 180], grid: [288, 282], pv2: [170, 282],
-    wallbox: [288, 82],
+    solar: [152, 82], battery: [52, 180], device: [152, 180], home: [252, 180], grid: [352, 180], pv2: [152, 282],
+    wallbox: [252, 82],
   };
   const lines = [
     // [from, to, watts (positive = flows from -> to)]
@@ -192,24 +192,19 @@ function renderFlow() {
     html += `<path class="line${active ? ' active' : ''}${active && w < 0 ? ' rev' : ''}" d="M${x1},${y1}L${x2},${y2}" ${active ? `style="stroke:${color}"` : ''}/>`;
   }
   // Labels sit on the side of each node that has no connector.
-  // With a wallbox above it, the home label moves to the right.
-  const LABEL_ABOVE = { solar: true, home: !hasWallbox, wallbox: true };
-  const LABEL_RIGHT = { home: hasWallbox };
+  const LABEL_ABOVE = { solar: true, wallbox: true };
   const node = (key, icon, label, value, color) => {
     const [x, y] = N[key];
     const on = isNum(value) && Math.abs(value) > 5;
     const above = LABEL_ABOVE[key];
     const showValue = key !== 'device';
     const pw = esc(fmtW(isNum(value) ? Math.abs(value) : null));
-    const text = LABEL_RIGHT[key]
-      ? `<text class="lbl side" x="36" y="-3">${esc(label)}</text><text class="pw side" x="36" y="14">${pw}</text>`
-      : `<text class="lbl" y="${above ? (showValue ? -57 : -40) : 46}">${esc(label)}</text>
-      ${showValue ? `<text class="pw" y="${above ? -40 : 63}">${pw}</text>` : ''}`;
-    return `<g class="node${on ? ' on' : ''}" transform="translate(${x},${y})">
+    return `<g class="node ${key}${on ? ' on' : ''}" transform="translate(${x},${y})">
       <circle r="30" ${on ? `style="stroke:${color}"` : ''}/>
       <path class="icon" d="${ICONS[icon]}"/>
       ${key === 'battery' ? batteryLevel(v('battery_soc')) : ''}
-      ${text}
+      <text class="lbl" y="${above ? (showValue ? -57 : -40) : 46}">${esc(label)}</text>
+      ${showValue ? `<text class="pw" y="${above ? -40 : 63}">${pw}</text>` : ''}
     </g>`;
   };
   html += node('solar', 'sun', t('flow.solar'), pv, css('--s-pv'));
@@ -219,8 +214,31 @@ function renderFlow() {
   html += node('grid', 'grid', hasMeter && grid < -5 ? t('flow.gridOut') : t('flow.grid'), hasMeter ? grid : null, css('--s-grid'));
   if (hasPv2) html += node('pv2', 'sun', pv2Name().slice(0, 24), pv2, css('--s-pv2'));
   if (hasWallbox) html += node('wallbox', 'wallbox', t('flow.wallbox'), wb, css('--s-wallbox'));
-  svg.setAttribute('viewBox', `0 0 ${hasWallbox ? 384 : 340} ${hasMeter || hasPv2 ? 356 : 256}`);
+  svg.setAttribute('viewBox', `0 0 404 ${hasPv2 ? 356 : 256}`);
   svg.innerHTML = html;
+  if (!$('#bat-tip').hidden) showBatteryTip();
+}
+
+// Pop-up on the battery node: state of charge, discharging and charging power.
+function showBatteryTip() {
+  const tip = $('#bat-tip');
+  const nodeEl = $('#flow .node.battery');
+  if (!nodeEl) return;
+  const bp = v('battery_power'); // positive = discharging
+  const soc = v('battery_soc');
+  const rows = [
+    [t('flow.soc'), isNum(soc) ? `${nf(0).format(soc)} %` : '–'],
+    [t('flow.discharge'), isNum(bp) ? fmtW(Math.max(0, bp)) : '–'],
+    [t('flow.charge'), isNum(bp) ? fmtW(Math.max(0, -bp)) : '–'],
+  ];
+  tip.innerHTML = `<div class="tt-title">${esc(t('flow.battery'))}</div>`
+    + rows.map(([k, val]) => `<div class="tt-row">${esc(k)}<b>${esc(val)}</b></div>`).join('');
+  tip.hidden = false;
+  // Right of the battery circle, vertically centered on it.
+  const wrap = tip.parentElement.getBoundingClientRect();
+  const r = nodeEl.querySelector('circle').getBoundingClientRect();
+  tip.style.left = `${r.right - wrap.left + 8}px`;
+  tip.style.top = `${r.top - wrap.top + r.height / 2 - tip.offsetHeight / 2}px`;
 }
 
 function renderToday() {
@@ -656,6 +674,19 @@ function drawGrid(e) {
 
 function bind() {
   for (const b of $$('nav.tabs button')) b.addEventListener('click', () => show(b.dataset.view));
+
+  // Battery pop-up: hover with a mouse, tap on touch screens.
+  const flow = $('#flow');
+  const onBattery = (e) => !!e.target.closest?.('.node.battery');
+  flow.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse' && onBattery(e)) showBatteryTip(); });
+  flow.addEventListener('pointerout', (e) => {
+    if (e.pointerType === 'mouse' && onBattery(e) && !e.relatedTarget?.closest?.('.node.battery')) $('#bat-tip').hidden = true;
+  });
+  flow.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    if (onBattery(e) && $('#bat-tip').hidden) showBatteryTip();
+    else $('#bat-tip').hidden = true;
+  });
 
   // Control: mode + sliders + schedule
   for (const b of $$('#mode-seg button')) {

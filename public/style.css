@@ -132,7 +132,8 @@ main { max-width: 760px; margin: 0 auto; padding: 0 16px 24px; }
 .flow .node .pw { font-weight: 650; font-size: 14px; font-variant-numeric: tabular-nums; }
 .flow .node path.icon { fill: none; stroke: var(--text); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .flow .node .level { fill: var(--s-battery); }
-.flow .node text.side { text-anchor: start; }
+.flow-wrap { position: relative; }
+.flow .node.battery { cursor: pointer; }
 .flow .line { fill: none; stroke: var(--border); stroke-width: 2; }
 .flow .line.active { stroke-dasharray: 2 8; stroke-linecap: round; stroke-width: 3; animation: flow 0.9s linear infinite; }
 .flow .line.active.rev { animation-direction: reverse; }
