@@ -64,7 +64,7 @@ at 1200 W, matching the integration.
 
 ### HACS (recommended)
 
-1. HACS → ⋮ → **Custom repositories** → add `https://github.com/peterruch1966/solakon-local`, type **Integration**.
+1. HACS → ⋮ → **Custom repositories** → add `https://github.com/peterruch1966/solakon-ha`, type **Integration**.
 2. Search for **Solakon Local** in HACS and download it.
 3. Restart Home Assistant.
 4. Settings → Devices & services → **Add integration** → **Solakon Local**.
