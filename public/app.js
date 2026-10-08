@@ -142,11 +142,19 @@ function renderHome() {
 
 const ICONS = {
   sun: 'M0,-6a6,6 0 1,0 0.01,0M0,-12v2.5M0,9.5V12M-12,0h2.5M9.5,0H12M-8.5,-8.5l1.8,1.8M6.7,6.7l1.8,1.8M-8.5,8.5l1.8,-1.8M6.7,-6.7l1.8,-1.8',
-  battery: 'M-6,-9h12v19h-12zM-2.5,-11.5h5M-3,3h6M-3,-1h6',
+  battery: 'M-6,-9h12v19h-12zM-2.5,-11.5h5', // the fill level is drawn separately
   device: 'M-9,-10h18v20h-18zM-5,-5h10M-5,0h10M-5,5h4',
   home: 'M-10,0l10,-9l10,9M-7,-2.5v11h14v-11',
   grid: 'M-5,11l5,-21l5,21M-8,-5h16M-6,2h12M-2.5,-10l2.5,-2l2.5,2',
+  wallbox: 'M-7,-11h10v22h-10zM-4,-7h4M-2,-3l-2,4h3l-2,4M3,-5h3v10a2,2 0 0,0 4,0v-4',
 };
+
+// Battery fill level inside the battery icon, from the state of charge.
+function batteryLevel(soc) {
+  if (!isNum(soc)) return '';
+  const h = (Math.min(100, Math.max(0, soc)) / 100) * 15;
+  return `<rect class="level" x="-3.5" y="${7.5 - h}" width="7" height="${h}" rx="1"/>`;
+}
 
 function renderFlow() {
   const svg = $('#flow');
@@ -157,10 +165,14 @@ function renderFlow() {
   const grid = S.gridPower;
   const hasMeter = isNum(grid);
   const hasPv2 = isNum(pv2);
-  const home = hasMeter && isNum(out) ? out + grid + (hasPv2 ? pv2 : 0) : null;
+  const wb = ex('wallboxPower');
+  const hasWallbox = isNum(wb);
+  // The wallbox is behind the grid meter, so it is taken out of the home consumption.
+  const home = hasMeter && isNum(out) ? out + grid + (hasPv2 ? pv2 : 0) - (hasWallbox ? wb : 0) : null;
 
   const N = {
     solar: [170, 82], battery: [52, 180], device: [170, 180], home: [288, 180], grid: [288, 282], pv2: [170, 282],
+    wallbox: [288, 82],
   };
   const lines = [
     // [from, to, watts (positive = flows from -> to)]
@@ -170,6 +182,7 @@ function renderFlow() {
   ];
   lines.push(['grid', 'home', hasMeter ? grid : null, css('--s-grid')]);
   if (hasPv2) lines.push(['pv2', 'home', pv2, css('--s-pv2')]);
+  if (hasWallbox) lines.push(['home', 'wallbox', wb, css('--s-wallbox')]);
 
   let html = '';
   for (const [a, b, w, color] of lines) {
@@ -179,17 +192,24 @@ function renderFlow() {
     html += `<path class="line${active ? ' active' : ''}${active && w < 0 ? ' rev' : ''}" d="M${x1},${y1}L${x2},${y2}" ${active ? `style="stroke:${color}"` : ''}/>`;
   }
   // Labels sit on the side of each node that has no connector.
-  const LABEL_ABOVE = { solar: true, home: true };
+  // With a wallbox above it, the home label moves to the right.
+  const LABEL_ABOVE = { solar: true, home: !hasWallbox, wallbox: true };
+  const LABEL_RIGHT = { home: hasWallbox };
   const node = (key, icon, label, value, color) => {
     const [x, y] = N[key];
     const on = isNum(value) && Math.abs(value) > 5;
     const above = LABEL_ABOVE[key];
     const showValue = key !== 'device';
+    const pw = esc(fmtW(isNum(value) ? Math.abs(value) : null));
+    const text = LABEL_RIGHT[key]
+      ? `<text class="lbl side" x="36" y="-3">${esc(label)}</text><text class="pw side" x="36" y="14">${pw}</text>`
+      : `<text class="lbl" y="${above ? (showValue ? -57 : -40) : 46}">${esc(label)}</text>
+      ${showValue ? `<text class="pw" y="${above ? -40 : 63}">${pw}</text>` : ''}`;
     return `<g class="node${on ? ' on' : ''}" transform="translate(${x},${y})">
       <circle r="30" ${on ? `style="stroke:${color}"` : ''}/>
       <path class="icon" d="${ICONS[icon]}"/>
-      <text class="lbl" y="${above ? (showValue ? -57 : -40) : 46}">${esc(label)}</text>
-      ${showValue ? `<text class="pw" y="${above ? -40 : 63}">${esc(fmtW(isNum(value) ? Math.abs(value) : null))}</text>` : ''}
+      ${key === 'battery' ? batteryLevel(v('battery_soc')) : ''}
+      ${text}
     </g>`;
   };
   html += node('solar', 'sun', t('flow.solar'), pv, css('--s-pv'));
@@ -198,7 +218,8 @@ function renderFlow() {
   html += node('home', 'home', hasMeter ? t('flow.home') : t('flow.output'), hasMeter ? home : out, css('--s-output'));
   html += node('grid', 'grid', hasMeter && grid < -5 ? t('flow.gridOut') : t('flow.grid'), hasMeter ? grid : null, css('--s-grid'));
   if (hasPv2) html += node('pv2', 'sun', pv2Name().slice(0, 24), pv2, css('--s-pv2'));
-  svg.setAttribute('viewBox', hasMeter || hasPv2 ? '0 0 340 356' : '0 0 340 256');
+  if (hasWallbox) html += node('wallbox', 'wallbox', t('flow.wallbox'), wb, css('--s-wallbox'));
+  svg.setAttribute('viewBox', `0 0 ${hasWallbox ? 384 : 340} ${hasMeter || hasPv2 ? 356 : 256}`);
   svg.innerHTML = html;
 }
 
@@ -404,6 +425,12 @@ function renderDevice() {
       [t('dev.totalPv'), isNum(ex('pvEnergy')) ? kwh(ex('pvEnergy')) : null],
     ])}</div>`);
   }
+  if (xd.wallbox) {
+    cards.push(`<div class="card"><h2>${esc(xd.wallbox.name)}</h2>${kvTable([
+      [t('dev.model'), [xd.wallbox.manufacturer, xd.wallbox.model].filter(Boolean).join(' ') || null],
+      [t('set.wallbox.power'), fmtU(ex('wallboxPower'), 'W', 0)],
+    ])}</div>`);
+  }
   if (xd.meter) {
     cards.push(`<div class="card"><h2>${esc(xd.meter.name)}</h2>${kvTable([
       [t('dev.model'), [xd.meter.manufacturer, xd.meter.model].filter(Boolean).join(' ') || null],
@@ -445,6 +472,7 @@ const EXTRA_SELECTS = [
   ['pvEnergy', 'pv', ['Wh', 'kWh', 'MWh']],
   ['gridImportEnergy', 'meter', ['Wh', 'kWh', 'MWh']],
   ['gridExportEnergy', 'meter', ['Wh', 'kWh', 'MWh']],
+  ['wallboxPower', 'wallbox', ['W', 'kW']],
 ];
 
 function renderDeviceSettings() {
@@ -452,6 +480,7 @@ function renderDeviceSettings() {
   const s = S.settings;
   $('#dev-pv').value = s.devices?.pv ?? '';
   $('#dev-meter').value = s.devices?.meter ?? '';
+  $('#dev-wallbox').value = s.devices?.wallbox ?? '';
   for (const [key, dev, units] of EXTRA_SELECTS) {
     const sel = $(`#ent-${key}`);
     const opts = (deviceSensors?.sensors?.[dev] || []).filter((o) => units.includes(o.unit));
@@ -738,7 +767,10 @@ function bind() {
     for (const [key] of EXTRA_SELECTS) entities[key] = $(`#ent-${key}`).value;
     await api('/api/settings', {
       method: 'PUT',
-      body: { devices: { pv: $('#dev-pv').value.trim(), meter: $('#dev-meter').value.trim() }, entities },
+      body: {
+        devices: { pv: $('#dev-pv').value.trim(), meter: $('#dev-meter').value.trim(), wallbox: $('#dev-wallbox').value.trim() },
+        entities,
+      },
     });
     await loadDeviceSensors();
     loadToday();

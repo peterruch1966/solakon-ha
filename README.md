@@ -18,16 +18,17 @@ Browser / phone ──HTTP──▶ Solakon Local (this container) ──WebSock
 | **Gerät / Device** | Model, serial, firmware, operating and remote-control status, PV strings, battery health, cell voltages, temperatures, grid values, energy counters |
 | **Einstellungen / Settings** | Language (DE/EN), theme, smart meter selection, control tuning, discovered entities |
 
-### Additional devices: PV inverter and grid meter
+### Additional devices: PV inverter, grid meter and wallbox
 
-Two more Home Assistant devices are found **by their device name** (set in Settings → Other devices):
+More Home Assistant devices are found **by their device name** (set in Settings → Other devices):
 
 | Setting | Default | Used for |
 |---|---|---|
 | PV inverter | `Solaranlage Hoymiles` | Second power source in the energy flow, its power in the daily curve, its yield per day / month and in total |
 | Power meter | `PowerMeter` | Grid power (energy flow, zero export) and **grid import / feed-in** today, per day / month, summed over the period, and the meter readings |
+| Wallbox | `keba` | Charging power as its own consumer above the home in the energy flow (taken out of the home consumption) |
 
-Their sensors (AC power, yield counter, import and export counters) are picked automatically;
+Their sensors (AC power, yield counter, import and export counters, charging power) are picked automatically;
 if a guess is wrong, choose the sensor in Settings. Energy counters need long-term statistics in
 HA (`state_class: total_increasing`), which most integrations provide.
 

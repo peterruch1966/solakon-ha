@@ -15,11 +15,12 @@ export const env = {
 
 export const DEFAULT_SETTINGS = {
   language: 'de',
-  // Other HA devices, found by name: a separate PV inverter and the grid meter.
+  // Other HA devices, found by name: a separate PV inverter, the grid meter and a wallbox.
   // Their sensors are picked automatically unless set below in `entities`.
   devices: {
     pv: 'Solaranlage Hoymiles',
     meter: 'PowerMeter',
+    wallbox: 'keba',
   },
   // Extra HA entities that are not part of the Solakon integration. Empty = auto-detect from `devices`.
   entities: {
@@ -33,6 +34,8 @@ export const DEFAULT_SETTINGS = {
     // Separate PV inverter: AC power (W) and yield counter (kWh).
     pvPower: '',
     pvEnergy: '',
+    // Wallbox charging power (W).
+    wallboxPower: '',
   },
   // Manual entity overrides: { solakonKey: entity_id }
   overrides: {},

@@ -1,4 +1,4 @@
-// Finds additional Home Assistant devices by name (a separate PV inverter and the grid meter)
+// Finds additional Home Assistant devices by name (a separate PV inverter, the grid meter and a wallbox)
 // and picks their power and energy sensors.
 
 export const POWER_SCALE = { W: 1, kW: 1000 }; // -> W
@@ -85,6 +85,16 @@ export function pickMeter(sensors) {
     gridExportEnergy: best(counters, (n) => {
       if (PHASE.test(n) || !EXPORT.test(n)) return -1;
       return /total|gesamt/.test(n) ? 1 : 0;
+    }),
+  };
+}
+
+// Wallbox (e.g. KEBA): the power currently drawn by the car charger.
+export function pickWallbox(sensors) {
+  return {
+    wallboxPower: best(power(sensors), (n) => {
+      if (NOT_ACTIVE_POWER.test(n) || PHASE.test(n)) return -1;
+      return (/charg|lade/.test(n) ? 2 : 0) + (/power|leistung/.test(n) ? 1 : 0);
     }),
   };
 }

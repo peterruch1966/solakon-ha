@@ -1,7 +1,7 @@
 // Discovers the Solakon ONE entities in Home Assistant and keeps their live state.
 import { EventEmitter } from 'node:events';
 import {
-  findDevice, sensorsOf, pickInverter, pickMeter, deviceInfo, POWER_SCALE, ENERGY_SCALE,
+  findDevice, sensorsOf, pickInverter, pickMeter, pickWallbox, deviceInfo, POWER_SCALE, ENERGY_SCALE,
 } from './devices.js';
 
 const PLATFORM = 'solakon_one';
@@ -29,10 +29,10 @@ export class Solakon extends EventEmitter {
     this.keyToEntity = {}; // solakon key -> entity_id
     this.entities = {}; // entity_id -> { state, attributes, lastUpdated }
     this.device = null;
-    // Other devices: a separate PV inverter and the grid meter.
-    this.extra = { pvPower: '', pvEnergy: '', gridPower: '', gridImportEnergy: '', gridExportEnergy: '' };
-    this.extraDevices = { pv: null, meter: null };
-    this.extraSensors = { pv: [], meter: [] };
+    // Other devices: a separate PV inverter, the grid meter and a wallbox.
+    this.extra = { pvPower: '', pvEnergy: '', gridPower: '', gridImportEnergy: '', gridExportEnergy: '', wallboxPower: '' };
+    this.extraDevices = { pv: null, meter: null, wallbox: null };
+    this.extraSensors = { pv: [], meter: [], wallbox: [] };
     this.discoveryError = null;
     this.subId = null;
 
@@ -93,32 +93,38 @@ export class Solakon extends EventEmitter {
     this.log.info(`Discovered ${Object.keys(map).length} Solakon entities`);
   }
 
-  // Resolve the PV inverter and grid meter sensors: manual entity settings win over auto-detection.
+  // Resolve the PV inverter, grid meter and wallbox sensors: manual entity settings win over auto-detection.
   async discoverExtras(entries, devices) {
     const s = this.getSettings();
     const pv = findDevice(devices, s.devices?.pv);
     // If no meter device matches by name, use the device of the configured grid power sensor.
     const meter = findDevice(devices, s.devices?.meter) || devices.find((d) => d.id
       && d.id === entries.find((e) => e.entity_id === s.entities.gridPower)?.device_id) || null;
+    const wallbox = findDevice(devices, s.devices?.wallbox);
     let states = [];
-    if (pv || meter) {
+    if (pv || meter || wallbox) {
       try {
         states = await this.ha.send({ type: 'get_states' });
       } catch (err) {
         this.log.warn('Could not read states:', err.message);
       }
     }
-    this.extraDevices = { pv: deviceInfo(pv), meter: deviceInfo(meter) };
+    this.extraDevices = { pv: deviceInfo(pv), meter: deviceInfo(meter), wallbox: deviceInfo(wallbox) };
     this.extraSensors = {
       pv: pv ? sensorsOf(entries, states, pv.id) : [],
       meter: meter ? sensorsOf(entries, states, meter.id) : [],
+      wallbox: wallbox ? sensorsOf(entries, states, wallbox.id) : [],
     };
-    const auto = { ...pickInverter(this.extraSensors.pv), ...pickMeter(this.extraSensors.meter) };
+    const auto = {
+      ...pickInverter(this.extraSensors.pv),
+      ...pickMeter(this.extraSensors.meter),
+      ...pickWallbox(this.extraSensors.wallbox),
+    };
     this.extra = {};
-    for (const k of ['pvPower', 'pvEnergy', 'gridPower', 'gridImportEnergy', 'gridExportEnergy']) {
+    for (const k of ['pvPower', 'pvEnergy', 'gridPower', 'gridImportEnergy', 'gridExportEnergy', 'wallboxPower']) {
       this.extra[k] = s.entities[k] || auto[k] || '';
     }
-    for (const [key, name] of [['pv', s.devices?.pv], ['meter', s.devices?.meter]]) {
+    for (const [key, name] of [['pv', s.devices?.pv], ['meter', s.devices?.meter], ['wallbox', s.devices?.wallbox]]) {
       if (name && !this.extraDevices[key]) this.log.warn(`Device "${name}" not found in Home Assistant`);
     }
     this.log.info(`Extra sensors: ${JSON.stringify(this.extra)}`);
@@ -233,6 +239,7 @@ export class Solakon extends EventEmitter {
         pvEnergy: this.extraValue('pvEnergy'),
         gridImportEnergy: this.extraValue('gridImportEnergy'),
         gridExportEnergy: this.extraValue('gridExportEnergy'),
+        wallboxPower: this.extraValue('wallboxPower'),
       },
       discoveryError: this.discoveryError,
     };

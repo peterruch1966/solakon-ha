@@ -53,7 +53,7 @@ const states = {};
 for (const [, [id, s, a]] of Object.entries(ENTITIES)) states[id] = { s: String(s), a };
 states['sensor.shelly_3em_power'] = { s: '150', a: { unit_of_measurement: 'W', friendly_name: 'Shelly 3EM Power' } };
 
-// Other devices found by name: a Hoymiles micro inverter (OpenDTU style) and a grid meter (Shelly style).
+// Other devices found by name: a Hoymiles micro inverter (OpenDTU style), a grid meter (Shelly style) and a KEBA wallbox.
 const energyAttrs = (unit, name) => ({ unit_of_measurement: unit, device_class: 'energy', state_class: 'total_increasing', friendly_name: name });
 const powerAttrs = (name) => ({ unit_of_measurement: 'W', device_class: 'power', state_class: 'measurement', friendly_name: name });
 const OTHER_DEVICES = {
@@ -69,6 +69,12 @@ const OTHER_DEVICES = {
     'sensor.powermeter_phase_a_energy': ['1500', energyAttrs('kWh', 'PowerMeter Phase A energy')],
     'sensor.powermeter_total_energy': ['4321', energyAttrs('kWh', 'PowerMeter Total energy')],
     'sensor.powermeter_total_energy_returned': ['987.6', energyAttrs('kWh', 'PowerMeter Total energy returned')],
+  }],
+  // KEBA integration: power in kW, plus current and energy sensors that must not be picked.
+  'dev-keba': ['KEBA P30', {
+    'sensor.keba_p30_max_current': ['16', { unit_of_measurement: 'A', friendly_name: 'KEBA P30 Max current' }],
+    'sensor.keba_p30_charging_power': ['3.7', { ...powerAttrs('KEBA P30 Charging power'), unit_of_measurement: 'kW' }],
+    'sensor.keba_p30_total_energy': ['1234.5', energyAttrs('kWh', 'KEBA P30 Total energy')],
   }],
 };
 for (const [, [, ents]] of Object.entries(OTHER_DEVICES)) {

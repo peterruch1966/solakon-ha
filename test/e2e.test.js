@@ -90,18 +90,21 @@ test('history and statistics', async () => {
   assert.ok('pv_total_energy' in td.totals);
 });
 
-test('finds the PV inverter and grid meter by device name', async () => {
+test('finds the PV inverter, grid meter and wallbox by device name', async () => {
   const s = await get('/api/state');
   assert.equal(s.extra.devices.pv.name, 'Solaranlage Hoymiles');
   assert.equal(s.extra.devices.meter.name, 'PowerMeter');
+  assert.equal(s.extra.devices.wallbox.name, 'KEBA P30');
   assert.deepEqual(s.extra.entities, {
     pvPower: 'sensor.solaranlage_hoymiles_power',
     pvEnergy: 'sensor.solaranlage_hoymiles_yieldtotal',
     gridPower: 'sensor.powermeter_power',
     gridImportEnergy: 'sensor.powermeter_total_energy',
     gridExportEnergy: 'sensor.powermeter_total_energy_returned',
+    wallboxPower: 'sensor.keba_p30_charging_power',
   });
   assert.equal(s.extra.pvPower, 420);
+  assert.equal(s.extra.wallboxPower, 3700, 'kW are converted to W');
   assert.equal(s.extra.gridImportEnergy, 4321);
   assert.equal(s.extra.gridExportEnergy, 987.6);
   assert.equal(s.gridPower, -120);
