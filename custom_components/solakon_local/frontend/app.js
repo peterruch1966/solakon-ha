@@ -185,6 +185,8 @@ function renderFlow() {
   const hasWallbox = isNum(wb);
   const hp = ex('heatpumpPower');
   const hasHeatpump = isNum(hp);
+  // The heat pump stays visible while idle, even if its sensor is unavailable then.
+  const showHeatpump = hasHeatpump || !!S.extra?.entities?.heatpumpPower;
   // The wallbox and heat pump are behind the grid meter, so they are taken out of the home consumption.
   const home = hasMeter && isNum(out)
     ? out + grid + (hasPv2 ? pv2 : 0) - (hasWallbox ? wb : 0) - (hasHeatpump ? hp : 0) : null;
@@ -202,7 +204,7 @@ function renderFlow() {
   lines.push(['grid', 'home', hasMeter ? grid : null, css('--s-grid')]);
   if (hasPv2) lines.push(['pv2', 'home', pv2, css('--s-pv2')]);
   if (hasWallbox) lines.push(['home', 'wallbox', wb, css('--s-wallbox')]);
-  if (hasHeatpump) lines.push(['home', 'heatpump', hp, css('--s-heatpump')]);
+  if (showHeatpump) lines.push(['home', 'heatpump', hp, css('--s-heatpump')]);
 
   let html = '';
   for (const [a, b, w, color] of lines) {
@@ -234,8 +236,8 @@ function renderFlow() {
   html += node('grid', 'grid', hasMeter && grid < -5 ? t('flow.gridOut') : t('flow.grid'), hasMeter ? grid : null, css('--s-grid'));
   if (hasPv2) html += node('pv2', 'sun', pv2Name().slice(0, 24), pv2, css('--s-pv2'));
   if (hasWallbox) html += node('wallbox', 'wallbox', t('flow.wallbox'), wb, css('--s-wallbox'));
-  if (hasHeatpump) html += node('heatpump', 'heatpump', t('flow.heatpump'), hp, css('--s-heatpump'));
-  svg.setAttribute('viewBox', `0 0 404 ${hasPv2 || hasHeatpump ? 356 : 256}`);
+  if (showHeatpump) html += node('heatpump', 'heatpump', t('flow.heatpump'), hp, css('--s-heatpump'));
+  svg.setAttribute('viewBox', `0 0 404 ${hasPv2 || showHeatpump ? 356 : 256}`);
   svg.innerHTML = html;
   if (!$('#bat-tip').hidden) showBatteryTip();
 }
