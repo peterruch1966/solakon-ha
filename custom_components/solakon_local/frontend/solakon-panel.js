@@ -166,6 +166,8 @@ const TEMPLATE = `
         <div class="row"><span class="lbl" data-i18n="set.meter.export"></span><select id="ent-gridExportEnergy" style="max-width:60%"></select></div>
         <div class="row"><span class="lbl" data-i18n="set.devices.wallbox"></span><input type="text" id="dev-wallbox" style="max-width:60%"></div>
         <div class="row"><span class="lbl" data-i18n="set.wallbox.power"></span><select id="ent-wallboxPower" style="max-width:60%"></select></div>
+        <div class="row"><span class="lbl" data-i18n="set.devices.heatpump"></span><input type="text" id="dev-heatpump" style="max-width:60%"></div>
+        <div class="row"><span class="lbl" data-i18n="set.heatpump.power"></span><select id="ent-heatpumpPower" style="max-width:60%"></select></div>
         <div class="btns"><button class="btn" id="save-devices" data-i18n="ctl.save"></button></div>
       </div>
       <div class="card">

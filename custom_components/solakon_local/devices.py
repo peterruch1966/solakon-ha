@@ -1,6 +1,6 @@
 """Find additional Home Assistant devices by name and pick their power and energy sensors.
 
-Covers a separate PV inverter, the grid meter and a wallbox. Devices, registry entries and
+Covers a separate PV inverter, the grid meter, a wallbox and a heat pump. Devices, registry entries and
 states are passed in as plain dicts, so this module has no Home Assistant dependency.
 """
 
@@ -24,7 +24,8 @@ def norm(s: Any) -> str:
     return re.sub(r"[._\-/]+", " ", str(s or "").lower())
 
 
-def find_device(devices: list[dict], name: str | None) -> dict | None:
+def find_device(devices: list[dict], name: str | None, entries: list[dict] | None = None) -> dict | None:
+    """Device by its name; with `entries`, else the device of an entity whose ID contains the name."""
     want = norm(name).strip()
     if not want:
         return None
@@ -40,7 +41,8 @@ def find_device(devices: list[dict], name: str | None) -> dict | None:
         for d in devices:
             if test(d):
                 return d
-    return None
+    dev_id = next((e.get("device_id") for e in entries or [] if want in norm(e["entity_id"]) and e.get("device_id")), None)
+    return next((d for d in devices if d["id"] == dev_id), None)
 
 
 def sensors_of(entries: list[dict], states: dict[str, dict], device_id: str) -> list[dict]:
@@ -140,6 +142,17 @@ def pick_wallbox(sensors: list[dict]) -> dict[str, str]:
         return (2 if _has(r"charg|lade", n) else 0) + (1 if _has(r"power|leistung", n) else 0)
 
     return {"wallboxPower": _best(_power(sensors), power)}
+
+
+def pick_heatpump(sensors: list[dict]) -> dict[str, str]:
+    """Heat pump (e.g. Viessmann Vitocal): the electrical power it currently draws."""
+    def power(n, _s):
+        if NOT_ACTIVE_POWER.search(n) or PHASE.search(n) or _has(r"therm|w(ae|ä)rme|heat output|heizleistung|rated|nominal", n):
+            return -1
+        return ((2 if _has(r"electr|elektr|consum|verbrauch|input|aufnahme", n) else 0)
+                + (1 if _has(r"power|leistung", n) else 0))
+
+    return {"heatpumpPower": _best(_power(sensors), power)}
 
 
 def device_info(d: dict | None) -> dict | None:

@@ -22,7 +22,7 @@ HA sidebar panel ──HA WebSocket──▶ Solakon Local (custom integration) 
 The panel follows the light/dark mode of your HA theme, updates live, and works in the HA
 companion app. It is only shown to HA administrators.
 
-### Additional devices: PV inverter, grid meter and wallbox
+### Additional devices: PV inverter, grid meter, wallbox and heat pump
 
 More Home Assistant devices are found **by their device name** (set in Settings → Other devices):
 
@@ -31,8 +31,9 @@ More Home Assistant devices are found **by their device name** (set in Settings 
 | PV inverter | `Solaranlage Hoymiles` | Second power source in the energy flow, its power in the daily curve, its yield per day / month and in total |
 | Power meter | `PowerMeter` | Grid power (energy flow, zero export) and **grid import / feed-in** today, per day / month, summed over the period, and the meter readings |
 | Wallbox | `keba` | Charging power as its own consumer above the home in the energy flow (taken out of the home consumption) |
+| Heat pump | `e3_vitocal_16` | Electrical power as its own consumer below the home in the energy flow (taken out of the home consumption). Also matches the entity ID prefix if no device has that name |
 
-Their sensors (AC power, yield counter, import and export counters, charging power) are picked automatically;
+Their sensors (AC power, yield counter, import and export counters, charging power, heat pump power) are picked automatically;
 if a guess is wrong, choose the sensor in Settings. Energy counters need long-term statistics in
 HA (`state_class: total_increasing`), which most integrations provide.
 

@@ -18,6 +18,7 @@ from .devices import (
     POWER_SCALE,
     device_info,
     find_device,
+    pick_heatpump,
     pick_inverter,
     pick_meter,
     pick_wallbox,
@@ -26,7 +27,8 @@ from .devices import (
 
 _LOGGER = logging.getLogger(__name__)
 
-EXTRA_KEYS = ("pvPower", "pvEnergy", "gridPower", "gridImportEnergy", "gridExportEnergy", "wallboxPower")
+EXTRA_KEYS = ("pvPower", "pvEnergy", "gridPower", "gridImportEnergy", "gridExportEnergy", "wallboxPower",
+              "heatpumpPower")
 
 
 def key_from_unique_id(unique_id: str) -> str:
@@ -79,10 +81,10 @@ class Solakon:
         self.on_update = on_update
         self.key_to_entity: dict[str, str] = {}
         self.device: dict | None = None
-        # Other devices: a separate PV inverter, the grid meter and a wallbox.
+        # Other devices: a separate PV inverter, the grid meter, a wallbox and a heat pump.
         self.extra: dict[str, str] = {k: "" for k in EXTRA_KEYS}
-        self.extra_devices: dict[str, dict | None] = {"pv": None, "meter": None, "wallbox": None}
-        self.extra_sensors: dict[str, list] = {"pv": [], "meter": [], "wallbox": []}
+        self.extra_devices: dict[str, dict | None] = {"pv": None, "meter": None, "wallbox": None, "heatpump": None}
+        self.extra_sensors: dict[str, list] = {"pv": [], "meter": [], "wallbox": [], "heatpump": []}
         self.discovery_error: str | None = None
         self.ready = False
         self._unsub: Callable[[], None] | None = None
@@ -127,7 +129,7 @@ class Solakon:
         self.on_update()
 
     def _discover_extras(self, entries: list[dict], devices: list[dict]) -> None:
-        """Resolve the PV inverter, grid meter and wallbox sensors: manual entity settings win over auto-detection."""
+        """Resolve the PV inverter, grid meter, wallbox and heat pump sensors: manual entity settings win over auto-detection."""
         s = self.get_settings()
         names = s.get("devices") or {}
         pv = find_device(devices, names.get("pv"))
@@ -137,24 +139,28 @@ class Solakon:
             dev_id = next((e["device_id"] for e in entries if e["entity_id"] == s["entities"]["gridPower"]), None)
             meter = next((d for d in devices if dev_id and d["id"] == dev_id), None)
         wallbox = find_device(devices, names.get("wallbox"))
+        heatpump = find_device(devices, names.get("heatpump"), entries)
 
         states = {
             st.entity_id: {"state": st.state, "attributes": dict(st.attributes)}
             for st in self.hass.states.async_all("sensor")
-        } if (pv or meter or wallbox) else {}
-        self.extra_devices = {"pv": device_info(pv), "meter": device_info(meter), "wallbox": device_info(wallbox)}
+        } if (pv or meter or wallbox or heatpump) else {}
+        self.extra_devices = {"pv": device_info(pv), "meter": device_info(meter), "wallbox": device_info(wallbox),
+                              "heatpump": device_info(heatpump)}
         self.extra_sensors = {
             "pv": sensors_of(entries, states, pv["id"]) if pv else [],
             "meter": sensors_of(entries, states, meter["id"]) if meter else [],
             "wallbox": sensors_of(entries, states, wallbox["id"]) if wallbox else [],
+            "heatpump": sensors_of(entries, states, heatpump["id"]) if heatpump else [],
         }
         auto = {
             **pick_inverter(self.extra_sensors["pv"]),
             **pick_meter(self.extra_sensors["meter"]),
             **pick_wallbox(self.extra_sensors["wallbox"]),
+            **pick_heatpump(self.extra_sensors["heatpump"]),
         }
         self.extra = {k: s["entities"].get(k) or auto.get(k) or "" for k in EXTRA_KEYS}
-        for key in ("pv", "meter", "wallbox"):
+        for key in ("pv", "meter", "wallbox", "heatpump"):
             if names.get(key) and not self.extra_devices[key]:
                 _LOGGER.warning('Device "%s" not found in Home Assistant', names[key])
         _LOGGER.debug("Extra sensors: %s", self.extra)
@@ -233,7 +239,8 @@ class Solakon:
             "extra": {
                 "devices": self.extra_devices,
                 "entities": self.extra,
-                **{k: self.extra_value(k) for k in ("pvPower", "pvEnergy", "gridImportEnergy", "gridExportEnergy", "wallboxPower")},
+                **{k: self.extra_value(k) for k in ("pvPower", "pvEnergy", "gridImportEnergy", "gridExportEnergy", "wallboxPower",
+                                                     "heatpumpPower")},
             },
             "discoveryError": self.discovery_error,
         }

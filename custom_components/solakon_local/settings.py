@@ -10,12 +10,13 @@ from typing import Any
 from .const import HARD_MAX_OUTPUT_W
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    # Other HA devices, found by name: a separate PV inverter, the grid meter and a wallbox.
+    # Other HA devices, found by name: a separate PV inverter, the grid meter, a wallbox and a heat pump.
     # Their sensors are picked automatically unless set below in `entities`.
     "devices": {
         "pv": "Solaranlage Hoymiles",
         "meter": "PowerMeter",
         "wallbox": "keba",
+        "heatpump": "e3_vitocal_16",
     },
     # Extra HA entities that are not part of the Solakon integration. Empty = auto-detect from `devices`.
     "entities": {
@@ -31,6 +32,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "pvEnergy": "",
         # Wallbox charging power (W).
         "wallboxPower": "",
+        # Heat pump electrical power (W).
+        "heatpumpPower": "",
     },
     # Manual entity overrides: { solakonKey: entity_id }
     "overrides": {},

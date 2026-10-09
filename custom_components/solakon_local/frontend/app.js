@@ -162,6 +162,7 @@ const ICONS = {
   home: 'M-10,0l10,-9l10,9M-7,-2.5v11h14v-11',
   grid: 'M-5,11l5,-21l5,21M-8,-5h16M-6,2h12M-2.5,-10l2.5,-2l2.5,2',
   wallbox: 'M-7,-11h10v22h-10zM-4,-7h4M-2,-3l-2,4h3l-2,4M3,-5h3v10a2,2 0 0,0 4,0v-4',
+  heatpump: 'M-11,-8h22v16h-22zM-4,-5a5,5 0 1,0 0.01,0M-4,-5v10M-9,0h10M5,-4h3M5,0h3M5,4h3',
 };
 
 // Battery fill level inside the battery icon, from the state of charge.
@@ -182,12 +183,15 @@ function renderFlow() {
   const hasPv2 = isNum(pv2);
   const wb = ex('wallboxPower');
   const hasWallbox = isNum(wb);
-  // The wallbox is behind the grid meter, so it is taken out of the home consumption.
-  const home = hasMeter && isNum(out) ? out + grid + (hasPv2 ? pv2 : 0) - (hasWallbox ? wb : 0) : null;
+  const hp = ex('heatpumpPower');
+  const hasHeatpump = isNum(hp);
+  // The wallbox and heat pump are behind the grid meter, so they are taken out of the home consumption.
+  const home = hasMeter && isNum(out)
+    ? out + grid + (hasPv2 ? pv2 : 0) - (hasWallbox ? wb : 0) - (hasHeatpump ? hp : 0) : null;
 
   const N = {
     solar: [152, 82], battery: [52, 180], device: [152, 180], home: [252, 180], grid: [352, 180], pv2: [152, 282],
-    wallbox: [252, 82],
+    wallbox: [252, 82], heatpump: [252, 282],
   };
   const lines = [
     // [from, to, watts (positive = flows from -> to)]
@@ -198,6 +202,7 @@ function renderFlow() {
   lines.push(['grid', 'home', hasMeter ? grid : null, css('--s-grid')]);
   if (hasPv2) lines.push(['pv2', 'home', pv2, css('--s-pv2')]);
   if (hasWallbox) lines.push(['home', 'wallbox', wb, css('--s-wallbox')]);
+  if (hasHeatpump) lines.push(['home', 'heatpump', hp, css('--s-heatpump')]);
 
   let html = '';
   for (const [a, b, w, color] of lines) {
@@ -229,7 +234,8 @@ function renderFlow() {
   html += node('grid', 'grid', hasMeter && grid < -5 ? t('flow.gridOut') : t('flow.grid'), hasMeter ? grid : null, css('--s-grid'));
   if (hasPv2) html += node('pv2', 'sun', pv2Name().slice(0, 24), pv2, css('--s-pv2'));
   if (hasWallbox) html += node('wallbox', 'wallbox', t('flow.wallbox'), wb, css('--s-wallbox'));
-  svg.setAttribute('viewBox', `0 0 404 ${hasPv2 ? 356 : 256}`);
+  if (hasHeatpump) html += node('heatpump', 'heatpump', t('flow.heatpump'), hp, css('--s-heatpump'));
+  svg.setAttribute('viewBox', `0 0 404 ${hasPv2 || hasHeatpump ? 356 : 256}`);
   svg.innerHTML = html;
   if (!$('#bat-tip').hidden) showBatteryTip();
 }
@@ -612,6 +618,12 @@ function renderDevice() {
       [t('set.wallbox.power'), fmtU(ex('wallboxPower'), 'W', 0)],
     ])}</div>`);
   }
+  if (xd.heatpump) {
+    cards.push(`<div class="card"><h2>${esc(xd.heatpump.name)}</h2>${kvTable([
+      [t('dev.model'), [xd.heatpump.manufacturer, xd.heatpump.model].filter(Boolean).join(' ') || null],
+      [t('set.heatpump.power'), fmtU(ex('heatpumpPower'), 'W', 0)],
+    ])}</div>`);
+  }
   if (xd.meter) {
     cards.push(`<div class="card"><h2>${esc(xd.meter.name)}</h2>${kvTable([
       [t('dev.model'), [xd.meter.manufacturer, xd.meter.model].filter(Boolean).join(' ') || null],
@@ -650,6 +662,7 @@ const EXTRA_SELECTS = [
   ['gridImportEnergy', 'meter', ['Wh', 'kWh', 'MWh']],
   ['gridExportEnergy', 'meter', ['Wh', 'kWh', 'MWh']],
   ['wallboxPower', 'wallbox', ['W', 'kW']],
+  ['heatpumpPower', 'heatpump', ['W', 'kW']],
 ];
 
 function renderDeviceSettings() {
@@ -658,6 +671,7 @@ function renderDeviceSettings() {
   $('#dev-pv').value = s.devices?.pv ?? '';
   $('#dev-meter').value = s.devices?.meter ?? '';
   $('#dev-wallbox').value = s.devices?.wallbox ?? '';
+  $('#dev-heatpump').value = s.devices?.heatpump ?? '';
   for (const [key, dev, units] of EXTRA_SELECTS) {
     const sel = $(`#ent-${key}`);
     const opts = (deviceSensors?.sensors?.[dev] || []).filter((o) => units.includes(o.unit));
@@ -957,7 +971,12 @@ function bind(signal) {
     for (const [key] of EXTRA_SELECTS) entities[key] = $(`#ent-${key}`).value;
     await ws('update_settings', {
       settings: {
-        devices: { pv: $('#dev-pv').value.trim(), meter: $('#dev-meter').value.trim(), wallbox: $('#dev-wallbox').value.trim() },
+        devices: {
+          pv: $('#dev-pv').value.trim(),
+          meter: $('#dev-meter').value.trim(),
+          wallbox: $('#dev-wallbox').value.trim(),
+          heatpump: $('#dev-heatpump').value.trim(),
+        },
         entities,
       },
     });

@@ -1,6 +1,6 @@
 import unittest
 
-from solakon_local.devices import find_device, pick_inverter, pick_meter, pick_wallbox, sensors_of
+from solakon_local.devices import find_device, pick_inverter, pick_heatpump, pick_meter, pick_wallbox, sensors_of
 
 
 def energy(unit, name):
@@ -11,7 +11,7 @@ def power(name, unit="W"):
     return {"unit_of_measurement": unit, "device_class": "power", "state_class": "measurement", "friendly_name": name}
 
 
-# A Hoymiles micro inverter (OpenDTU style), a grid meter (Shelly style) and a KEBA wallbox.
+# A Hoymiles micro inverter (OpenDTU style), a grid meter (Shelly style), a KEBA wallbox and a Vitocal heat pump.
 FIXTURE = {
     "dev-hoymiles": ("Solaranlage Hoymiles", {
         "sensor.solaranlage_hoymiles_power": ("420", power("Solaranlage Hoymiles Power")),
@@ -32,6 +32,12 @@ FIXTURE = {
         "sensor.keba_p30_charging_power": ("3.7", power("KEBA P30 Charging power", "kW")),
         "sensor.keba_p30_total_energy": ("1234.5", energy("kWh", "KEBA P30 Total energy")),
     }),
+    # Device name differs from the entity ID prefix; thermal output must not be picked.
+    "dev-vitocal": ("Vitocal 250-A", {
+        "sensor.e3_vitocal_16_heating_thermal_power": ("6.1", power("Vitocal Heating thermal power", "kW")),
+        "sensor.e3_vitocal_16_power_consumption": ("1450", power("Vitocal Power consumption")),
+        "sensor.e3_vitocal_16_power_consumption_today": ("8.2", energy("kWh", "Vitocal Power consumption today")),
+    }),
 }
 
 DEVICES = [{"id": dev_id, "name": name, "name_by_user": None} for dev_id, (name, _) in FIXTURE.items()]
@@ -51,6 +57,10 @@ class FindDeviceTest(unittest.TestCase):
         self.assertEqual(find_device(DEVICES, "PowerMeter")["id"], "dev-meter")
         self.assertEqual(find_device(DEVICES, "solaranlage hoymiles")["id"], "dev-hoymiles")
         self.assertEqual(find_device(DEVICES, "keba")["id"], "dev-keba")
+
+    def test_falls_back_to_entity_id(self):
+        self.assertIsNone(find_device(DEVICES, "e3_vitocal_16"))
+        self.assertEqual(find_device(DEVICES, "e3_vitocal_16", ENTRIES)["id"], "dev-vitocal")
 
     def test_user_name_wins_and_empty_name_finds_nothing(self):
         devices = DEVICES + [{"id": "dev-renamed", "name": "Shelly Pro 3EM", "name_by_user": "PowerMeter"}]
@@ -80,6 +90,9 @@ class PickSensorsTest(unittest.TestCase):
 
     def test_wallbox(self):
         self.assertEqual(pick_wallbox(sensors("dev-keba")), {"wallboxPower": "sensor.keba_p30_charging_power"})
+
+    def test_heatpump(self):
+        self.assertEqual(pick_heatpump(sensors("dev-vitocal")), {"heatpumpPower": "sensor.e3_vitocal_16_power_consumption"})
 
     def test_nothing_to_pick(self):
         self.assertEqual(pick_meter([]), {"gridPower": "", "gridImportEnergy": "", "gridExportEnergy": ""})
